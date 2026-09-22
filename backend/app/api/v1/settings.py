@@ -42,11 +42,12 @@ def test_smtp(profile: dict, auth: tuple = Depends(get_current_user)):
 
 @router.get("/smtp-profiles", response_model=List[SMTPProfileResponse])
 def get_profiles(db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
-    # SMTP profiles are shared sending identities for the team, not private to
-    # whoever created them - campaign execution already looks one up by name
-    # with no ownership check, so hiding profiles a user doesn't own from the
-    # picker only broke the UI, it never restricted who could use them.
-    return db.query(SMTPProfile).all()
+    # SMTP profiles carry plaintext mailbox passwords - only admins see every
+    # profile; everyone else sees only the ones they created.
+    user_id, role = auth
+    if role == "admin":
+        return db.query(SMTPProfile).all()
+    return db.query(SMTPProfile).filter_by(user_id=user_id).all()
 
 @router.post("/smtp-profiles", response_model=SMTPProfileResponse)
 def create_profile(profile: SMTPProfileCreate, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
