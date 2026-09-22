@@ -18,9 +18,9 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getToken();
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...options.headers,
+    ...(options.headers as Record<string, string> | undefined),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   
@@ -80,7 +80,7 @@ export const api = {
   submitGameScore: (data: any) => apiRequest("/games/scores", { method: "POST", body: JSON.stringify(data) }),
   getLeaderboard: (game: string) => apiRequest<any[]>(`/games/leaderboard/${game}`),
   getUserBest: (game: string) => apiRequest<any>(`/games/user-best/${game}`),
-  testSMTP: (data: any) => apiRequest("/settings/test-smtp", { method: "POST", body: JSON.stringify(data) }),
+  testSMTP: (data: any) => apiRequest<{ success: boolean; message?: string }>("/settings/test-smtp", { method: "POST", body: JSON.stringify(data) }),
   getUsers: () => apiRequest<any[]>("/users/"),
   createUser: (data: any) => apiRequest("/users/", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id: number, data: any) => apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),

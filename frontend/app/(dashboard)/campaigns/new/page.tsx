@@ -110,7 +110,7 @@ export default function NewCampaignPage() {
     const editRecipe = sessionStorage.getItem("campaign_recipe_edit");
     
     if (savedRecipe || editRecipe) {
-      const recipe = JSON.parse(savedRecipe || editRecipe);
+      const recipe = JSON.parse((savedRecipe || editRecipe) as string);
       // Consume immediately: otherwise a leftover key from an earlier Run/Edit
       // click hangs around in sessionStorage and gets picked up (with priority
       // over whichever recipe was just clicked) the next time this page mounts.
