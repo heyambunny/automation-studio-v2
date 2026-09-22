@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import hashlib
+import hmac
 import bcrypt
 from jose import JWTError, jwt
 from app.core.config import settings
@@ -7,11 +9,27 @@ from app.core.config import settings
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def _verify_legacy_pbkdf2(plain_password: str, stored_hash: str) -> bool:
+    # Format produced by the (now-unused) User.hash_password() in
+    # app/models/user.py: "<salt-hex>:<pbkdf2-sha256-hex>". Some accounts in
+    # the shared production DB were created with that method before this app
+    # standardized on bcrypt; verified here too so those logins keep working.
     try:
-        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-    except:
+        salt, hash_val = stored_hash.split(":")
+        computed = hashlib.pbkdf2_hmac('sha256', plain_password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+        return hmac.compare_digest(computed, hash_val)
+    except (ValueError, AttributeError):
         return False
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if hashed_password.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+        except ValueError:
+            return False
+    if ":" in hashed_password:
+        return _verify_legacy_pbkdf2(plain_password, hashed_password)
+    return False
 
 def create_access_token(user_id: int, role: str) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
