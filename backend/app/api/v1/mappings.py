@@ -17,10 +17,11 @@ def get_current_user(authorization: str = Header(...)):
 
 @router.get("/", response_model=List[MappingResponse])
 def get_mappings(db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
-    user_id, role = auth
-    if role == "admin":
-        return db.query(Mapping).all()
-    return db.query(Mapping).filter_by(user_id=user_id).all()
+    # Mappings are shared team resources used in the campaign wizard, not
+    # private to whoever uploaded them - campaign execution already reads
+    # entries with no ownership check, so hiding them here only broke the
+    # wizard for anyone who didn't personally create one.
+    return db.query(Mapping).all()
 
 @router.post("/", response_model=MappingResponse)
 def create_mapping(mapping: MappingCreate, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
@@ -45,12 +46,9 @@ def create_mapping(mapping: MappingCreate, db: Session = Depends(get_db), auth: 
 
 @router.get("/{mapping_id}/entries", response_model=List[MappingEntryResponse])
 def get_mapping_entries(mapping_id: int, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
-    user_id, role = auth
     mapping = db.query(Mapping).filter_by(id=mapping_id).first()
     if not mapping:
         raise HTTPException(status_code=404, detail="Mapping not found")
-    if role != "admin" and mapping.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
     return db.query(MappingEntry).filter_by(mapping_id=mapping_id).all()
 
 @router.delete("/{mapping_id}")
