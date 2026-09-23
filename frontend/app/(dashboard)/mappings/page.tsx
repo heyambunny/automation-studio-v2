@@ -14,6 +14,83 @@ import { Download, Trash2, Eye, Upload, FileSpreadsheet, ChevronLeft, ChevronRig
 
 const SAMPLE_CSV = "BranchName,To,CC\nMumbai,mumbai.manager@company.com;mumbai.assistant@company.com,regional.head@company.com\nDelhi,delhi.manager@company.com,regional.head@company.com;director@company.com\nBangalore,bangalore.manager@company.com,\n";
 const ITEMS_PER_PAGE = 5;
+const EXPECTED_COLUMNS = ["BranchName", "To", "CC"];
+const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+
+// A mapping CSV uses ',' to separate columns and ';' to separate multiple
+// recipients within the To/CC cell - the two can't both be ',' or a cell
+// like "a@x.com,b@x.com" would silently split into extra columns instead
+// of staying one recipient list. This validates that shape before the
+// mapping is ever saved, so a bad file can't later break email sending.
+function validateMappingCsv(csvContent: string): { entries: { BranchName: string; To: string; CC: string }[]; errors: string[] } {
+  const errors: string[] = [];
+  const lines = csvContent.trim().split("\n").filter((l) => l.trim() !== "");
+  if (lines.length === 0) {
+    return { entries: [], errors: ["CSV file is empty"] };
+  }
+
+  const headers = lines[0].split(",").map((h) => h.trim());
+  const unknownCols = headers.filter((h) => !EXPECTED_COLUMNS.includes(h));
+  if (unknownCols.length > 0) {
+    errors.push(`Unexpected column(s): ${unknownCols.join(", ")} - only BranchName, To, CC are allowed`);
+  }
+  if (!headers.includes("BranchName") || !headers.includes("To")) {
+    errors.push("CSV must have BranchName and To columns");
+    return { entries: [], errors };
+  }
+  const branchIdx = headers.indexOf("BranchName");
+  const toIdx = headers.indexOf("To");
+  const ccIdx = headers.indexOf("CC");
+
+  const entries: { BranchName: string; To: string; CC: string }[] = [];
+  const seenBranches = new Map<string, number>();
+
+  for (let i = 1; i < lines.length; i++) {
+    const rowNum = i + 1; // 1-indexed, matches what a user sees in Excel/a text editor
+    const values = lines[i].split(",");
+    if (values.length !== headers.length) {
+      errors.push(`Row ${rowNum}: expected ${headers.length} column(s) but found ${values.length} - use ';' to separate multiple emails in one cell, not ','`);
+      continue;
+    }
+
+    const branchName = values[branchIdx]?.trim() || "";
+    const to = values[toIdx]?.trim() || "";
+    const cc = ccIdx >= 0 ? (values[ccIdx]?.trim() || "") : "";
+
+    if (!branchName) {
+      errors.push(`Row ${rowNum}: BranchName is required`);
+      continue;
+    }
+    const key = branchName.toLowerCase();
+    if (seenBranches.has(key)) {
+      errors.push(`Row ${rowNum}: duplicate BranchName "${branchName}" (already used in row ${seenBranches.get(key)})`);
+      continue;
+    }
+    seenBranches.set(key, rowNum);
+
+    if (!to) {
+      errors.push(`Row ${rowNum} (${branchName}): To is required`);
+      continue;
+    }
+    const toEmails = to.split(";").map((e) => e.trim()).filter(Boolean);
+    const badTo = toEmails.filter((e) => !EMAIL_RE.test(e));
+    if (badTo.length > 0) {
+      errors.push(`Row ${rowNum} (${branchName}): invalid email in To - "${badTo.join('", "')}"`);
+      continue;
+    }
+
+    const ccEmails = cc ? cc.split(";").map((e) => e.trim()).filter(Boolean) : [];
+    const badCc = ccEmails.filter((e) => !EMAIL_RE.test(e));
+    if (badCc.length > 0) {
+      errors.push(`Row ${rowNum} (${branchName}): invalid email in CC - "${badCc.join('", "')}"`);
+      continue;
+    }
+
+    entries.push({ BranchName: branchName, To: to, CC: cc });
+  }
+
+  return { entries, errors };
+}
 
 export default function MappingsPage() {
   const [mappings, setMappings] = useState<any[]>([]);
@@ -24,7 +101,7 @@ export default function MappingsPage() {
   const [viewMapping, setViewMapping] = useState<any>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,28 +129,20 @@ export default function MappingsPage() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setError([]);
     const reader = new FileReader();
     reader.onload = (event) => setCsvContent(event.target?.result as string);
     reader.readAsText(file);
   };
 
   const handleSaveMapping = async () => {
-    setError("");
-    if (!mappingName.trim()) { setError("Please enter a mapping name"); return; }
-    if (!csvContent.trim()) { setError("Please upload a CSV file"); return; }
+    setError([]);
+    if (!mappingName.trim()) { setError(["Please enter a mapping name"]); return; }
+    if (!csvContent.trim()) { setError(["Please upload a CSV file"]); return; }
 
-    const lines = csvContent.trim().split("\n");
-    const headers = lines[0].split(",").map(h => h.trim());
-    if (!headers.includes("BranchName") || !headers.includes("To")) {
-      setError("CSV must have BranchName and To columns");
-      return;
-    }
-
-    const entries = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(",");
-      entries.push({ BranchName: values[0]?.trim() || "", To: values[1]?.trim() || "", CC: values[2]?.trim() || "" });
-    }
+    const { entries, errors } = validateMappingCsv(csvContent);
+    if (errors.length > 0) { setError(errors); return; }
+    if (entries.length === 0) { setError(["CSV has no data rows"]); return; }
 
     try {
       await api.createMapping({ mapping_name: mappingName, entries });
@@ -83,8 +152,9 @@ export default function MappingsPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadMappings();
       setCurrentPage(1);
-    } catch (err) {
-      setError("Failed to save mapping");
+    } catch (err: any) {
+      const detail = err?.message;
+      setError([typeof detail === "string" && detail ? detail : "Failed to save mapping"]);
     }
   };
 
@@ -144,7 +214,19 @@ export default function MappingsPage() {
                   <Label className="text-xs">CSV File</Label>
                   <Input ref={fileInputRef} type="file" accept=".csv" onChange={handleFileUpload} />
                 </div>
-                {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+                {error.length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      {error.length === 1 ? (
+                        error[0]
+                      ) : (
+                        <ul className="list-disc pl-4 space-y-0.5 max-h-48 overflow-y-auto">
+                          {error.map((e, i) => <li key={i}>{e}</li>)}
+                        </ul>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <Button onClick={handleSaveMapping} className="w-full">Save Mapping</Button>
               </div>
             </DialogContent>

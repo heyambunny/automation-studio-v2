@@ -25,7 +25,17 @@ export async function apiRequest<T>(
   if (token) headers["Authorization"] = `Bearer ${token}`;
   
   const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
-  if (!response.ok) throw new ApiError(response.statusText, response.status);
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const body = await response.json();
+      if (Array.isArray(body?.detail?.errors)) message = body.detail.errors.join("; ");
+      else if (typeof body?.detail === "string") message = body.detail;
+    } catch {
+      // response wasn't JSON - stick with statusText
+    }
+    throw new ApiError(message, response.status);
+  }
   return response.json();
 }
 
