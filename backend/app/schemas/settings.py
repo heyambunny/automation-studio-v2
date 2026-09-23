@@ -23,7 +23,9 @@ class SMTPProfileResponse(BaseModel):
     password: Optional[str] = None
     use_tls: bool
     is_default: bool
-    
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
+
     class Config:
         from_attributes = True
 

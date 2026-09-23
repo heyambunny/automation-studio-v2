@@ -85,4 +85,6 @@ export const api = {
   createUser: (data: any) => apiRequest("/users/", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id: number, data: any) => apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteUser: (id: number) => apiRequest(`/users/${id}`, { method: "DELETE" }),
+  getMyProfile: () => apiRequest<any>("/users/me"),
+  updateMyProfile: (data: any) => apiRequest<any>("/users/me", { method: "PUT", body: JSON.stringify(data) }),
 };

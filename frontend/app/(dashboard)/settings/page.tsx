@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Mail, Server, Star, Trash2, Users, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi } from "lucide-react";
+import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff } from "lucide-react";
 
 const AVATARS = [
   { id: "bear-brown", bg: "bg-amber-100", emoji: "🐻" },
@@ -29,7 +29,7 @@ export default function SettingsPage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"smtp" | "users">("users");
+  const [activeTab, setActiveTab] = useState<"smtp" | "users" | "profile">("users");
 
   // SMTP form
   const [profileName, setProfileName] = useState("");
@@ -47,6 +47,7 @@ export default function SettingsPage() {
   const [profileTestResult, setProfileTestResult] = useState<Record<number, any>>({});
   const [editingProfile, setEditingProfile] = useState<any>(null);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<number, boolean>>({});
 
   // User form
   const [newUserName, setNewUserName] = useState("");
@@ -63,25 +64,30 @@ export default function SettingsPage() {
   const [editRole, setEditRole] = useState("manager");
   const [editAvatar, setEditAvatar] = useState("bear-brown");
 
+  // My Profile form
+  const [myProfileOpen, setMyProfileOpen] = useState(false);
+  const [myName, setMyName] = useState("");
+  const [myAvatar, setMyAvatar] = useState("bear-brown");
+
   useEffect(() => {
     loadData();
     const userData = JSON.parse(localStorage.getItem("user") || "{}");
     setUser(userData);
+    if (userData.role !== "admin") setActiveTab("profile");
   }, []);
 
   const loadData = async () => {
     try {
-      const [profilesData, usersData] = await Promise.all([
-        api.getSMTPProfiles(),
-        api.getUsers?.() || Promise.resolve([]),
-      ]);
-      setProfiles(profilesData);
-      setUsers(usersData);
+      setProfiles(await api.getSMTPProfiles());
     } catch (err) {
-      console.error("Failed to load data");
-    } finally {
-      setLoading(false);
+      console.error("Failed to load SMTP profiles");
     }
+    try {
+      setUsers(await api.getUsers());
+    } catch (err) {
+      // non-admins get a 403 here; that's expected, not an error
+    }
+    setLoading(false);
   };
 
   const handleSaveProfile = async () => {
@@ -221,6 +227,21 @@ export default function SettingsPage() {
     await loadData();
   };
 
+  const openMyProfile = () => {
+    setMyName(user?.full_name || "");
+    setMyAvatar(user?.avatar || "bear-brown");
+    setMyProfileOpen(true);
+  };
+
+  const handleSaveMyProfile = async () => {
+    const updated = await api.updateMyProfile({ full_name: myName, avatar: myAvatar });
+    const merged = { ...user, ...updated };
+    setUser(merged);
+    localStorage.setItem("user", JSON.stringify(merged));
+    window.dispatchEvent(new Event("user-updated"));
+    setMyProfileOpen(false);
+  };
+
   const isAdmin = user?.role === "admin";
 
   const getAvatar = (avatarId: string) => {
@@ -238,6 +259,10 @@ export default function SettingsPage() {
 
       {/* Tabs */}
       <div className="inline-flex bg-zinc-100 dark:bg-white/5 rounded-lg p-1 mb-8">
+        <button onClick={() => setActiveTab("profile")} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "profile" ? "bg-white dark:bg-white/15 shadow-sm dark:text-white" : "text-zinc-500 dark:text-zinc-400"}`}>
+          <User className="w-4 h-4" />
+          My Profile
+        </button>
         {isAdmin && (
           <button onClick={() => setActiveTab("users")} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "users" ? "bg-white dark:bg-white/15 shadow-sm dark:text-white" : "text-zinc-500 dark:text-zinc-400"}`}>
             <Users className="w-4 h-4" />
@@ -249,6 +274,29 @@ export default function SettingsPage() {
           SMTP Profiles
         </button>
       </div>
+
+      {/* My Profile */}
+      {activeTab === "profile" && user && (
+        <div className="max-w-sm">
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="group bg-white border border-zinc-200 rounded-2xl p-6 hover:border-zinc-300 hover:shadow-lg transition-all relative dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10 dark:hover:border-white/20 dark:shadow-none"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className={`w-16 h-16 ${getAvatar(user.avatar).bg} rounded-full flex items-center justify-center text-3xl`}>
+                {getAvatar(user.avatar).emoji}
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={openMyProfile}>
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <p className="font-semibold text-sm dark:text-white">{user.full_name || "Unnamed"}</p>
+            <Badge className="mt-1.5 capitalize text-xs">{user.role}</Badge>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-3 truncate">{user.email}</p>
+          </motion.div>
+        </div>
+      )}
 
       {/* User Management */}
       {activeTab === "users" && isAdmin && (
@@ -383,8 +431,26 @@ export default function SettingsPage() {
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-sm dark:text-white">{p.profile_name}</p>
                         {p.is_default && <Badge className="bg-zinc-900 text-white text-xs"><Star className="w-3 h-3 mr-1" fill="currentColor" />Default</Badge>}
+                        {isAdmin && (p.owner_name || p.owner_email) && (
+                          <Badge className="bg-zinc-100 text-zinc-600 dark:bg-white/10 dark:text-zinc-300 text-xs font-normal">
+                            Owned by {p.owner_name || p.owner_email}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{p.sender_email} · {p.smtp_server}:{p.smtp_port}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500 font-mono">
+                          {revealedPasswords[p.id] ? (p.password || "—") : "••••••••"}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setRevealedPasswords((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}
+                          className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                          title={revealedPasswords[p.id] ? "Hide password" : "Show password"}
+                        >
+                          {revealedPasswords[p.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        </button>
+                      </div>
                       {profileTestResult[p.id] && (
                         <p className={`text-[11px] mt-1 font-medium ${profileTestResult[p.id].success ? "text-emerald-600" : "text-red-600"}`}>
                           {profileTestResult[p.id].success ? "✅ Connected" : "❌ Failed"}
@@ -444,6 +510,46 @@ export default function SettingsPage() {
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
             </div>
             <Button className="w-full" onClick={handleSaveEditProfile}>Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit My Profile Dialog */}
+      <Dialog open={myProfileOpen} onOpenChange={setMyProfileOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit My Profile</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-xs">Choose Avatar</Label>
+              <div className="grid grid-cols-5 gap-2">
+                {AVATARS.map((avatar) => (
+                  <button
+                    key={avatar.id}
+                    onClick={() => setMyAvatar(avatar.id)}
+                    className={`w-12 h-12 ${avatar.bg} rounded-full flex items-center justify-center text-2xl transition-all cursor-pointer ${
+                      myAvatar === avatar.id ? "ring-2 ring-offset-2 ring-[#0A0A0A] scale-110" : "hover:scale-105"
+                    }`}
+                  >
+                    {avatar.emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Full Name</Label>
+              <Input value={myName} onChange={(e) => setMyName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Email</Label>
+              <Input value={user?.email || ""} disabled />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Role</Label>
+              <Input value={user?.role || ""} disabled className="capitalize" />
+            </div>
+            <Button className="w-full" onClick={handleSaveMyProfile}>Save Changes</Button>
           </div>
         </DialogContent>
       </Dialog>

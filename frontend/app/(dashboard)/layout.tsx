@@ -45,6 +45,9 @@ export default function DashboardLayout({
     } else {
       setUser(userData);
     }
+    const onUserUpdated = () => setUser(getUser());
+    window.addEventListener("user-updated", onUserUpdated);
+    return () => window.removeEventListener("user-updated", onUserUpdated);
   }, [router]);
 
   if (!user) {

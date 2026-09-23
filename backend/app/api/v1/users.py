@@ -17,12 +17,26 @@ class UserCreate(BaseModel):
     role: str = "manager"
     avatar: str = "bear-brown"
 
+class UserSelfUpdate(BaseModel):
+    full_name: Optional[str] = None
+    avatar: Optional[str] = None
+
 def get_current_admin(authorization: str = Header(...)):
     token = authorization.replace("Bearer ", "")
     payload = decode_token(token)
     if not payload or payload.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return int(payload.get("sub"))
+
+def get_current_user(authorization: str = Header(...)):
+    token = authorization.replace("Bearer ", "")
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return int(payload.get("sub"))
+
+def _serialize_user(u: User):
+    return {"id": u.id, "email": u.email, "full_name": u.full_name, "role": u.role.value if u.role else "viewer", "avatar": u.avatar or "bear-brown"}
 
 @router.get("/")
 def get_users(db: Session = Depends(get_db), auth: int = Depends(get_current_admin)):
@@ -45,6 +59,25 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db), auth: int 
     db.commit()
     db.refresh(new_user)
     return {"id": new_user.id, "email": new_user.email, "full_name": new_user.full_name, "role": new_user.role.value}
+
+@router.get("/me")
+def get_my_profile(db: Session = Depends(get_db), user_id: int = Depends(get_current_user)):
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _serialize_user(user)
+
+@router.put("/me")
+def update_my_profile(user_data: UserSelfUpdate, db: Session = Depends(get_db), user_id: int = Depends(get_current_user)):
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_data.full_name is not None:
+        user.full_name = user_data.full_name
+    if user_data.avatar is not None:
+        user.avatar = user_data.avatar
+    db.commit()
+    return _serialize_user(user)
 
 @router.put("/{user_id}")
 def update_user(user_id: int, user_data: UserCreate, db: Session = Depends(get_db), auth: int = Depends(get_current_admin)):

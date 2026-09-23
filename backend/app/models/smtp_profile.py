@@ -24,5 +24,13 @@ class SMTPProfile(Base):
     # Relationships
     user = relationship("User", back_populates="smtp_profiles")
 
+    @property
+    def owner_name(self):
+        return self.user.full_name if self.user else None
+
+    @property
+    def owner_email(self):
+        return self.user.email if self.user else None
+
     def __repr__(self):
         return f"<SMTPProfile {self.profile_name}>"

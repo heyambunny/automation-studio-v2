@@ -414,14 +414,14 @@ def _cell_css(cell, cf=None) -> str:
             if css:
                 parts.append(f"border-{name}:{css}")
 
-    # Conditional formatting overrides (appended last so they win)
+    # Conditional formatting overrides (appended last so they win). Data bars
+    # are NOT applied here as a CSS gradient - most mail clients (classic
+    # Outlook's Word engine especially) strip `background: linear-gradient`
+    # outright, so the bar would silently vanish once the email is actually
+    # delivered even though it renders fine in a browser preview. They're
+    # rendered as a nested table instead - see _data_bar_html().
     if cf:
-        data_bar = cf.get("data_bar")
-        if data_bar:
-            bar_color, pct = data_bar
-            base = bg or "transparent"
-            parts.append(f"background:linear-gradient(90deg,{bar_color} {pct}%,{base} {pct}%)")
-        elif cf.get("bg"):
+        if cf.get("bg"):
             parts.append(f"background-color:{cf['bg']}")
         if cf.get("color"):
             parts.append(f"color:{cf['color']}")
@@ -431,6 +431,40 @@ def _cell_css(cell, cf=None) -> str:
             parts.append("font-style:italic")
 
     return ";".join(parts)
+
+
+def _is_percent_cell(cell) -> bool:
+    value = cell.value
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    return "%" in (cell.number_format or "")
+
+
+def _auto_bar_color(pct: float) -> str:
+    """Red/amber/green by value, matching the v1 tool's auto progress bars."""
+    if pct < 30:
+        return "#E2685C"
+    if pct < 60:
+        return "#F2A857"
+    return "#57BB8A"
+
+
+def _data_bar_html(value_html: str, bar_color: str, pct: float, base_color: str) -> str:
+    """Email-safe replacement for Excel's data-bar fill: a value line with a
+    thin proportional bar underneath, built from nested tables with solid
+    bgcolor cells. Works in Outlook/Gmail/Apple Mail alike, unlike a CSS
+    gradient background which most of those strip on delivery."""
+    pct = max(0, min(100, round(pct)))
+    bar_cells = f'<td bgcolor="{bar_color}" width="{pct}%" style="background-color:{bar_color};font-size:1px;line-height:5px;">&nbsp;</td>'
+    if pct < 100:
+        bar_cells += f'<td bgcolor="{base_color}" style="background-color:{base_color};font-size:1px;line-height:5px;">&nbsp;</td>'
+    return (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+        f'<tr><td style="padding:0;">{value_html}</td></tr>'
+        '<tr><td style="padding:0 0 1px 0;">'
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:2px;"><tr>{bar_cells}</tr></table>'
+        '</td></tr></table>'
+    )
 
 
 def _resolve_sheet(wb, sheet_name: str):
@@ -1111,6 +1145,16 @@ def render_excel_range_html(file_path: str, sheet_name: str, start_cell: str = "
                     text = ov["icon_html"] + (text if text else "")
                 elif not text:
                     text = "&nbsp;"
+                if ov and ov.get("data_bar"):
+                    bar_color, pct = ov["data_bar"]
+                    base_color = _fill_to_css(cell.fill) or "#FFFFFF"
+                    text = _data_bar_html(text, bar_color, pct, base_color)
+                elif not ov and _is_percent_cell(cell):
+                    # No conditional formatting on this cell in the source file,
+                    # but it's a percentage - add a bar automatically like v1 did,
+                    # instead of only reproducing bars Excel's own CF rules define.
+                    pct = cell.value * 100
+                    text = _data_bar_html(text, _auto_bar_color(pct), pct, "#EDEDED")
                 row_html.append(f'<td{attrs} style="{_cell_css(cell, ov)}">{text}</td>')
             row_html.append("</tr>")
             joined = "".join(row_html)
