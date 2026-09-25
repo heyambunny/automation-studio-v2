@@ -10,7 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { Megaphone, Plus, Trash2 } from "lucide-react";
+import { Megaphone, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+
+const CONTENT_PREVIEW_LENGTH = 220;
 
 export default function AnnouncementsPage() {
   const { showToast } = useToast();
@@ -21,6 +23,16 @@ export default function AnnouncementsPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -122,36 +134,55 @@ export default function AnnouncementsPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {announcements.map((a: any, idx: number) => (
-            <motion.div
-              key={a.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03 }}
-              className="group bg-white border border-zinc-200 rounded-2xl p-6 dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm dark:text-white">{a.title}</p>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    {a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}
-                    {a.created_by_name ? ` · ${a.created_by_name}` : ""}
-                  </p>
+          {announcements.map((a: any, idx: number) => {
+            const isLong = (a.content || "").length > CONTENT_PREVIEW_LENGTH;
+            const isExpanded = expandedIds.has(a.id);
+            const displayText = isLong && !isExpanded
+              ? a.content.slice(0, CONTENT_PREVIEW_LENGTH).trimEnd() + "…"
+              : a.content;
+            return (
+              <motion.div
+                key={a.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.03 }}
+                className="group bg-white border border-zinc-200 rounded-2xl p-6 dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm dark:text-white">{a.title}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      {a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}
+                      {a.created_by_name ? ` · ${a.created_by_name}` : ""}
+                    </p>
+                  </div>
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      onClick={() => setDeleteConfirm(a.id)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
                 </div>
-                {isAdmin && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    onClick={() => setDeleteConfirm(a.id)}
+                <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-3 whitespace-pre-line">{displayText}</p>
+                {isLong && (
+                  <button
+                    onClick={() => toggleExpand(a.id)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-zinc-900 dark:text-white mt-2 hover:underline cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                    {isExpanded ? (
+                      <>Show less <ChevronUp className="w-3 h-3" /></>
+                    ) : (
+                      <>Read more <ChevronDown className="w-3 h-3" /></>
+                    )}
+                  </button>
                 )}
-              </div>
-              <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-3 whitespace-pre-line">{a.content}</p>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
       )}
 

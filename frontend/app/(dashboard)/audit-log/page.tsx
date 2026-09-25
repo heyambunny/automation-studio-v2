@@ -7,7 +7,8 @@ import { getUser } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, UserPlus, UserMinus, UserCog, Mail, FileSpreadsheet, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ShieldAlert, UserPlus, UserMinus, UserCog, Mail, FileSpreadsheet, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 
 const ACTION_META: Record<string, { icon: any; label: string; color: string }> = {
   "user.create": { icon: UserPlus, label: "User created", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -17,11 +18,14 @@ const ACTION_META: Record<string, { icon: any; label: string; color: string }> =
   "mapping.delete": { icon: FileSpreadsheet, label: "Mapping deleted", color: "bg-red-50 text-red-700 border-red-200" },
 };
 
+const ITEMS_PER_PAGE = 15;
+
 export default function AuditLogPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const userData = getUser();
@@ -39,6 +43,9 @@ export default function AuditLogPage() {
       .catch(() => console.error("Failed to load audit logs"))
       .finally(() => setLoading(false));
   }, [router]);
+
+  const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
+  const paginated = logs.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   if (!user) return null;
 
@@ -67,8 +74,9 @@ export default function AuditLogPage() {
           </CardContent>
         </Card>
       ) : (
+        <>
         <div className="space-y-2">
-          {logs.map((l: any, idx: number) => {
+          {paginated.map((l: any, idx: number) => {
             const meta = ACTION_META[l.action] || { icon: Clock, label: l.action, color: "bg-zinc-50 text-zinc-600 border-zinc-200" };
             return (
               <motion.div
@@ -97,6 +105,34 @@ export default function AuditLogPage() {
             );
           })}
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-6">
+            <p className="text-xs text-zinc-500">
+              Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, logs.length)} of {logs.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <Button
+                  key={page}
+                  variant={page === currentPage ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentPage(page)}
+                  className={`h-8 w-8 ${page === currentPage ? "bg-[#0A0A0A] text-white" : ""}`}
+                >
+                  {page}
+                </Button>
+              ))}
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages}>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+        </>
       )}
     </main>
   );

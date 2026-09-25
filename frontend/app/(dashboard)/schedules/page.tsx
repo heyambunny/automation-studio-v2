@@ -10,7 +10,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import { CalendarClock, Clock, Trash2, CalendarDays, Repeat, Pencil } from "lucide-react";
+import { CalendarClock, Clock, Trash2, CalendarDays, Repeat, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+
+const ITEMS_PER_PAGE = 8;
 
 const frequencyColors: Record<string, string> = {
   once: "bg-blue-50 text-blue-700 border-blue-200",
@@ -40,6 +42,7 @@ export default function SchedulesPage() {
   const [editNextRun, setEditNextRun] = useState("");
   const [editEnabled, setEditEnabled] = useState(true);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     loadSchedules();
@@ -60,6 +63,9 @@ export default function SchedulesPage() {
     await api.cancelSchedule(id);
     setCancelConfirm(null);
     await loadSchedules();
+    if (paginated.length === 1 && currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
   };
 
   const openEdit = (s: any) => {
@@ -93,6 +99,9 @@ export default function SchedulesPage() {
     }
   };
 
+  const totalPages = Math.ceil(schedules.length / ITEMS_PER_PAGE);
+  const paginated = schedules.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
   return (
     <main className="max-w-5xl mx-auto px-8 py-8 dark:text-white">
       <div className="flex items-center gap-3 mb-8">
@@ -119,7 +128,7 @@ export default function SchedulesPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {schedules.map((s: any, idx) => {
+          {paginated.map((s: any, idx) => {
             const FreqIcon = frequencyIcons[s.frequency] || Clock;
             return (
               <motion.div
@@ -170,6 +179,33 @@ export default function SchedulesPage() {
               </motion.div>
             );
           })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6">
+          <p className="text-xs text-zinc-500">
+            Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, schedules.length)} of {schedules.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <Button
+                key={page}
+                variant={page === currentPage ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCurrentPage(page)}
+                className={`h-8 w-8 ${page === currentPage ? "bg-[#0A0A0A] text-white" : ""}`}
+              >
+                {page}
+              </Button>
+            ))}
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages}>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       )}
 
