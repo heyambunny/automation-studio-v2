@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, FileSpreadsheet, CheckCircle2, XCircle, Activity, Send, TrendingUp, Zap } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { api } from "@/lib/api";
 
 
@@ -42,15 +42,7 @@ export default function DashboardPage() {
     { label: "Active Now", value: 0, icon: Activity },
   ];
 
-  const emailData = stats?.email_activity || [
-    { day: "Mon", sent: 0 },
-    { day: "Tue", sent: 0 },
-    { day: "Wed", sent: 0 },
-    { day: "Thu", sent: 0 },
-    { day: "Fri", sent: 0 },
-    { day: "Sat", sent: 0 },
-    { day: "Sun", sent: 0 },
-  ];
+  const emailData = stats?.email_activity || [];
 
   useEffect(() => {
     api.getDashboardStats().then(setStats).catch(console.error);
@@ -163,23 +155,29 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-sm font-semibold dark:text-white">Email Activity</h3>
-                <p className="text-xs text-zinc-400 dark:text-zinc-400 mt-0.5">Emails sent per day</p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-400 mt-0.5">Sent vs. failed per day</p>
               </div>
-              <span className="text-xs text-zinc-400 bg-zinc-100 dark:bg-white/10 dark:text-zinc-300 px-3 py-1 rounded-full">Last 7 days</span>
+              <span className="text-xs text-zinc-400 bg-zinc-100 dark:bg-white/10 dark:text-zinc-300 px-3 py-1 rounded-full">Last 30 days</span>
             </div>
             <ResponsiveContainer width="100%" height={260}>
               <AreaChart data={emailData}>
                 <defs>
-                  <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0A0A0A" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#0A0A0A" stopOpacity={0}/>
+                  <linearGradient id="gradientSent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="gradientFailed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="transparent" tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="transparent" tickLine={false} axisLine={false} />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="transparent" tickLine={false} axisLine={false} interval={4} />
+                <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="transparent" tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '12px', background: 'rgba(10,10,10,0.9)', color: 'white' }} />
-                <Area type="monotone" dataKey="sent" stroke="#0A0A0A" strokeWidth={2} fill="url(#gradient)" name="Emails" />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+                <Area type="monotone" dataKey="sent" stroke="#10b981" strokeWidth={2} fill="url(#gradientSent)" name="Sent" />
+                <Area type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} fill="url(#gradientFailed)" name="Failed" />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>

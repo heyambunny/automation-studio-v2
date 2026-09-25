@@ -5,7 +5,6 @@ from datetime import datetime
 import enum
 
 from app.core.database import Base
-campaign_config = Column(Text)  # JSON config for the campaign
 
 class ExecutionStatus(str, enum.Enum):
     QUEUED = "queued"
@@ -20,6 +19,7 @@ class Execution(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     campaign_name = Column(String(255))
+    campaign_config = Column(Text)  # JSON snapshot of the CampaignExecuteRequest, used to power retry
     status = Column(SQLEnum(ExecutionStatus), default=ExecutionStatus.PENDING)
     send_method = Column(String(50))  # smtp, outlook_send, outlook_draft
     mode = Column(String(50))  # static/static, static/ai, ai/ai
@@ -50,7 +50,8 @@ class EmailLog(Base):
     subject = Column(String(500))
     status = Column(String(50))  # sent, failed, draft_saved
     error_message = Column(Text)
-    sent_at = Column(DateTime)
+    sent_at = Column(DateTime)  # only set on success
+    attempted_at = Column(DateTime)  # always set, success or failure - powers the dashboard trend chart
 
     # Relationships
     execution = relationship("Execution", back_populates="email_logs")

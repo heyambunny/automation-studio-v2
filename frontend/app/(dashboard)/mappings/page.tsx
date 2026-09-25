@@ -93,12 +93,79 @@ function validateMappingCsv(csvContent: string): { entries: { BranchName: string
   return { entries, errors };
 }
 
+// Excel cells don't have the column/in-cell delimiter conflict a CSV text
+// file does, so ';' or ',' are both accepted as recipient separators here -
+// this mirrors what the backend (and the actual send-time code) already
+// tolerates. Used for .xlsx/.xls uploads, which are parsed into row objects
+// client-side via SheetJS before reaching this function.
+function validateMappingRows(rows: Record<string, any>[]): { entries: { BranchName: string; To: string; CC: string }[]; errors: string[] } {
+  const errors: string[] = [];
+  if (rows.length === 0) {
+    return { entries: [], errors: ["File has no data rows"] };
+  }
+
+  const headerKeys = Object.keys(rows[0]);
+  const unknownCols = headerKeys.filter((h) => !EXPECTED_COLUMNS.includes(h));
+  if (unknownCols.length > 0) {
+    errors.push(`Unexpected column(s): ${unknownCols.join(", ")} - only BranchName, To, CC are allowed`);
+  }
+  if (!headerKeys.includes("BranchName") || !headerKeys.includes("To")) {
+    errors.push("File must have BranchName and To columns");
+    return { entries: [], errors };
+  }
+
+  const entries: { BranchName: string; To: string; CC: string }[] = [];
+  const seenBranches = new Map<string, number>();
+
+  rows.forEach((row, i) => {
+    const rowNum = i + 2; // +1 for header row, +1 for 1-indexing
+    const branchName = String(row.BranchName ?? "").trim();
+    const to = String(row.To ?? "").trim();
+    const cc = String(row.CC ?? "").trim();
+
+    if (!branchName) {
+      errors.push(`Row ${rowNum}: BranchName is required`);
+      return;
+    }
+    const key = branchName.toLowerCase();
+    if (seenBranches.has(key)) {
+      errors.push(`Row ${rowNum}: duplicate BranchName "${branchName}" (already used in row ${seenBranches.get(key)})`);
+      return;
+    }
+    seenBranches.set(key, rowNum);
+
+    if (!to) {
+      errors.push(`Row ${rowNum} (${branchName}): To is required`);
+      return;
+    }
+    const toEmails = to.split(/[;,]/).map((e) => e.trim()).filter(Boolean);
+    const badTo = toEmails.filter((e) => !EMAIL_RE.test(e));
+    if (badTo.length > 0) {
+      errors.push(`Row ${rowNum} (${branchName}): invalid email in To - "${badTo.join('", "')}"`);
+      return;
+    }
+
+    const ccEmails = cc ? cc.split(/[;,]/).map((e) => e.trim()).filter(Boolean) : [];
+    const badCc = ccEmails.filter((e) => !EMAIL_RE.test(e));
+    if (badCc.length > 0) {
+      errors.push(`Row ${rowNum} (${branchName}): invalid email in CC - "${badCc.join('", "')}"`);
+      return;
+    }
+
+    entries.push({ BranchName: branchName, To: to, CC: cc });
+  });
+
+  return { entries, errors };
+}
+
 export default function MappingsPage() {
   const { showToast } = useToast();
   const [mappings, setMappings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [mappingName, setMappingName] = useState("");
   const [csvContent, setCsvContent] = useState("");
+  const [excelRows, setExcelRows] = useState<Record<string, any>[] | null>(null);
+  const [parsingFile, setParsingFile] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewMapping, setViewMapping] = useState<any>(null);
   const [viewOpen, setViewOpen] = useState(false);
@@ -128,29 +195,50 @@ export default function MappingsPage() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setError([]);
-    const reader = new FileReader();
-    reader.onload = (event) => setCsvContent(event.target?.result as string);
-    reader.readAsText(file);
+    setCsvContent("");
+    setExcelRows(null);
+
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+    if (isExcel) {
+      setParsingFile(true);
+      try {
+        const XLSX = await import("xlsx");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, any>[];
+        setExcelRows(rows);
+      } catch (err) {
+        setError(["Could not read that Excel file - is it a valid .xlsx/.xls?"]);
+      } finally {
+        setParsingFile(false);
+      }
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => setCsvContent(event.target?.result as string);
+      reader.readAsText(file);
+    }
   };
 
   const handleSaveMapping = async () => {
     setError([]);
     if (!mappingName.trim()) { setError(["Please enter a mapping name"]); return; }
-    if (!csvContent.trim()) { setError(["Please upload a CSV file"]); return; }
+    if (!csvContent.trim() && !excelRows) { setError(["Please upload a CSV or Excel file"]); return; }
 
-    const { entries, errors } = validateMappingCsv(csvContent);
+    const { entries, errors } = excelRows ? validateMappingRows(excelRows) : validateMappingCsv(csvContent);
     if (errors.length > 0) { setError(errors); return; }
-    if (entries.length === 0) { setError(["CSV has no data rows"]); return; }
+    if (entries.length === 0) { setError(["File has no data rows"]); return; }
 
     try {
       await api.createMapping({ mapping_name: mappingName, entries });
       setDialogOpen(false);
       setMappingName("");
       setCsvContent("");
+      setExcelRows(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadMappings();
       setCurrentPage(1);
@@ -210,8 +298,8 @@ export default function MappingsPage() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-md dark:bg-[#1A1A1A] dark:border-white/10">
               <DialogHeader>
-                <DialogTitle className="dark:text-white">Upload Mapping CSV</DialogTitle>
-                <DialogDescription className="dark:text-zinc-400">CSV must have columns: BranchName, To, CC</DialogDescription>
+                <DialogTitle className="dark:text-white">Upload Mapping</DialogTitle>
+                <DialogDescription className="dark:text-zinc-400">CSV or Excel file with columns: BranchName, To, CC</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-1.5">
@@ -219,8 +307,9 @@ export default function MappingsPage() {
                   <Input value={mappingName} onChange={(e) => setMappingName(e.target.value)} placeholder="e.g. Branch Mapping Q3" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">CSV File</Label>
-                  <Input ref={fileInputRef} type="file" accept=".csv" onChange={handleFileUpload} />
+                  <Label className="text-xs">CSV or Excel File</Label>
+                  <Input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload} disabled={parsingFile} />
+                  {parsingFile && <p className="text-xs text-zinc-400">Reading file...</p>}
                 </div>
                 {error.length > 0 && (
                   <Alert variant="destructive">
@@ -235,7 +324,7 @@ export default function MappingsPage() {
                     </AlertDescription>
                   </Alert>
                 )}
-                <Button onClick={handleSaveMapping} className="w-full">Save Mapping</Button>
+                <Button onClick={handleSaveMapping} className="w-full" disabled={parsingFile}>Save Mapping</Button>
               </div>
             </DialogContent>
           </Dialog>

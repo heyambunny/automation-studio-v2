@@ -4,6 +4,7 @@ from typing import List
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import decode_token, hash_password
+from app.core.audit import log_audit
 from app.models import User, UserRole
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -58,6 +59,7 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db), auth: int 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    log_audit(db, auth, "user.create", "user", new_user.id, f"Created {new_user.email} ({new_user.role.value})")
     return {"id": new_user.id, "email": new_user.email, "full_name": new_user.full_name, "role": new_user.role.value}
 
 @router.get("/me")
@@ -91,6 +93,7 @@ def update_user(user_id: int, user_data: UserCreate, db: Session = Depends(get_d
     if user_data.password:
         user.password_hash = hash_password(user_data.password)
     db.commit()
+    log_audit(db, auth, "user.update", "user", user.id, f"Updated {user.email} ({user.role.value})")
     return {"message": "User updated"}
 
 @router.delete("/{user_id}")
@@ -98,7 +101,8 @@ def delete_user(user_id: int, db: Session = Depends(get_db), auth: int = Depends
     user = db.query(User).filter_by(id=user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+    deleted_email = user.email
+
     # Delete related records
     from app.models import Setting, SMTPProfile, Mapping, Template, Execution, Schedule, GameScore
     db.query(Setting).filter_by(user_id=user_id).delete()
@@ -108,7 +112,8 @@ def delete_user(user_id: int, db: Session = Depends(get_db), auth: int = Depends
     db.query(Execution).filter_by(user_id=user_id).delete()
     db.query(Schedule).filter_by(user_id=user_id).delete()
     db.query(GameScore).filter_by(user_id=user_id).delete()
-    
+
     db.delete(user)
     db.commit()
+    log_audit(db, auth, "user.delete", "user", user_id, f"Deleted {deleted_email}")
     return {"message": "User deleted"}

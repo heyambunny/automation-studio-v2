@@ -43,20 +43,29 @@ def get_stats(db: Session = Depends(get_db), auth: tuple = Depends(get_current_u
     else:
         schedules = db.query(Schedule).filter_by(user_id=user_id, enabled=True).count()
     
-    # Email activity (last 7 days)
+    # Email activity (last 30 days, sent vs failed). attempted_at is always
+    # set regardless of outcome; sent_at is a fallback for rows logged before
+    # that column existed (older successes only - older failures have no
+    # timestamp at all and can't be placed on the trend).
     from datetime import datetime, timedelta
-    last_7_days = datetime.utcnow() - timedelta(days=7)
-    recent_logs = [l for l in email_logs if l.sent_at and l.sent_at >= last_7_days and l.status == "sent"]
-    
+    last_30_days = datetime.utcnow() - timedelta(days=30)
+
     daily_counts = {}
-    for i in range(7):
-        day = (datetime.utcnow() - timedelta(days=6-i)).strftime("%a")
-        daily_counts[day] = 0
-    for log in recent_logs:
-        day = log.sent_at.strftime("%a")
-        if day in daily_counts:
-            daily_counts[day] += 1
-    
+    day_keys = []
+    for i in range(30):
+        day_date = datetime.utcnow() - timedelta(days=29 - i)
+        key = day_date.strftime("%b %d")
+        day_keys.append(key)
+        daily_counts[key] = {"sent": 0, "failed": 0}
+
+    for log in email_logs:
+        ts = log.attempted_at or log.sent_at
+        if not ts or ts < last_30_days:
+            continue
+        key = ts.strftime("%b %d")
+        if key in daily_counts and log.status in ("sent", "failed"):
+            daily_counts[key][log.status] += 1
+
     return {
         "total_campaigns": total_campaigns,
         "completed": completed,
@@ -67,5 +76,5 @@ def get_stats(db: Session = Depends(get_db), auth: tuple = Depends(get_current_u
         "failed_emails": failed_emails,
         "success_rate": success_rate,
         "schedules": schedules,
-        "email_activity": [{"day": k, "sent": v} for k, v in daily_counts.items()],
+        "email_activity": [{"day": k, "sent": daily_counts[k]["sent"], "failed": daily_counts[k]["failed"]} for k in day_keys],
     }

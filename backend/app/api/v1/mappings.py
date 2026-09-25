@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.core.audit import log_audit
 from app.schemas.mapping import MappingCreate, MappingResponse, MappingEntryResponse
 from app.models import Mapping, MappingEntry
 
@@ -113,8 +114,10 @@ def delete_mapping(mapping_id: int, db: Session = Depends(get_db), auth: tuple =
         raise HTTPException(status_code=404, detail="Mapping not found")
     if role != "admin" and mapping.user_id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+    mapping_name = mapping.mapping_name
+
     db.query(MappingEntry).filter_by(mapping_id=mapping_id).delete()
     db.delete(mapping)
     db.commit()
+    log_audit(db, user_id, "mapping.delete", "mapping", mapping_id, f"Deleted mapping \"{mapping_name}\"")
     return {"message": "Mapping deleted"}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
-import { LayoutDashboard, Settings, FileSpreadsheet, PlusCircle, History, FileText, Clock, Database, FolderOpen, Gamepad2, Megaphone } from "lucide-react";
+import { LayoutDashboard, Settings, FileSpreadsheet, PlusCircle, History, FileText, Clock, Database, FolderOpen, Gamepad2, Megaphone, ShieldAlert } from "lucide-react";
 
 const AVATARS: Record<string, { bg: string; emoji: string }> = {
   "bear-brown": { bg: "bg-amber-100", emoji: "🐻" },
@@ -30,6 +30,7 @@ const navItems = [
   { href: "/announcements", label: "Announcements", icon: Megaphone },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/data-browser", label: "Data Browser", icon: Database, adminOnly: true },
+  { href: "/audit-log", label: "Audit Log", icon: ShieldAlert, adminOnly: true },
   { href: "/games", label: "Mini Games", icon: Gamepad2 },
 ];
 

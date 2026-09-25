@@ -197,6 +197,70 @@ def _notify_campaign_result(db: Session, user_id: int, execution, results, profi
     send_email(smtp_config, [user.email], f"⚠️ {len(failed)} email(s) failed - {campaign_name}", body)
 
 
+def _send_branch_email(db: Session, request: CampaignExecuteRequest, profile, execution,
+                        branch: str, to_list: list, cc_list: list, existing_log=None) -> dict:
+    """Resolve the {{Summary}} block and send one email for one branch. Shared
+    by run_campaign() (creates a fresh EmailLog) and the retry endpoint
+    (updates an existing failed one in place) so both paths stay identical."""
+    file_path = None
+    for ext in ['.xlsx', '.xls', '.xlsb', '.csv']:
+        test_path = os.path.join(request.campaign_folder, f"{branch}{ext}")
+        if os.path.exists(test_path):
+            file_path = test_path
+            break
+    if not file_path:
+        file_path = os.path.join(request.campaign_folder, f"{branch}.xlsx")
+
+    summary_html, inline_images = "", []
+    if os.path.exists(file_path):
+        summary_html, inline_images = resolve_summary(
+            file_path, request.sheet_name, request.start_cell, request.summary_format
+        )
+
+    subject = request.subject.replace("{{BranchName}}", branch).replace("{{ReportType}}", request.report_type)
+    body = request.body_template.replace("{{BranchName}}", branch).replace("{{ReportType}}", request.report_type).replace("{{SenderName}}", profile.sender_name or "").replace("{{Summary}}", summary_html)
+    body = body.replace("\n", "<br>")
+
+    smtp_config = {
+        "smtp_server": profile.smtp_server,
+        "smtp_port": profile.smtp_port,
+        "sender_email": profile.sender_email,
+        "sender_name": profile.sender_name,
+        "password": profile.password,
+    }
+
+    attachments = [file_path] if request.attach_file and os.path.exists(file_path) else []
+    result = send_email(smtp_config, to_list, subject, body, cc_list, attachments,
+                        inline_images=inline_images)
+
+    now = datetime.utcnow()
+    if existing_log is not None:
+        existing_log.subject = subject
+        existing_log.status = "sent" if result["success"] else "failed"
+        existing_log.error_message = result.get("message", "") if not result["success"] else ""
+        existing_log.sent_at = now if result["success"] else None
+        existing_log.attempted_at = now
+    else:
+        db.add(EmailLog(
+            execution_id=execution.id,
+            branch_name=branch,
+            recipient_to=", ".join(to_list),
+            recipient_cc=", ".join(cc_list),
+            subject=subject,
+            status="sent" if result["success"] else "failed",
+            error_message=result.get("message", "") if not result["success"] else "",
+            sent_at=now if result["success"] else None,
+            attempted_at=now,
+        ))
+    db.commit()
+
+    return {
+        "branch": branch,
+        "status": "sent" if result["success"] else "failed",
+        "reason": result.get("message", "") if not result["success"] else "",
+    }
+
+
 def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> dict:
     """Send one email per mapping entry for this campaign config. Shared by the
     execute-now endpoint and the schedule runner (app/core/scheduler.py)."""
@@ -214,6 +278,7 @@ def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> 
     execution = Execution(
         user_id=user_id,
         campaign_name=request.report_type,
+        campaign_config=request.model_dump_json(),
         status="in_progress",
         send_method="SMTP",
         mode="static/static",
@@ -250,64 +315,8 @@ def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> 
         to_list = [e.strip() for e in entry.to_recipients.replace(";", ",").split(",") if e.strip()]
         cc_raw = str(entry.cc_recipients or "")
         cc_list = [e.strip() for e in cc_raw.replace(";", ",").split(",") if e.strip()] if cc_raw and cc_raw.lower() != "nan" else []
-        
-        # Find file - check all supported formats
-        file_path = None
-        for ext in ['.xlsx', '.xls', '.xlsb', '.csv']:
-            test_path = os.path.join(request.campaign_folder, f"{branch}{ext}")
-            if os.path.exists(test_path):
-                file_path = test_path
-                break
-        
-        if not file_path:
-            file_path = os.path.join(request.campaign_folder, f"{branch}.xlsx")
-        
-        # Resolve the {{Summary}} block (HTML table, or a LibreOffice-rendered image)
-        summary_html, inline_images = "", []
-        print(f"DEBUG: file_path={file_path}, exists={os.path.exists(file_path)}")
-        if os.path.exists(file_path):
-            summary_html, inline_images = resolve_summary(
-                file_path, request.sheet_name, request.start_cell, request.summary_format
-            )
-            print(f"DEBUG: summary_length={len(summary_html) if summary_html else 0}")
 
-        # Resolve variables
-        subject = request.subject.replace("{{BranchName}}", branch).replace("{{ReportType}}", request.report_type)
-        body = request.body_template.replace("{{BranchName}}", branch).replace("{{ReportType}}", request.report_type).replace("{{SenderName}}", profile.sender_name or "").replace("{{Summary}}", summary_html)
-        body = body.replace("\n", "<br>")
-        
-        # Send email
-        smtp_config = {
-            "smtp_server": profile.smtp_server,
-            "smtp_port": profile.smtp_port,
-            "sender_email": profile.sender_email,
-            "sender_name": profile.sender_name,
-            "password": profile.password,
-        }
-        
-        attachments = [file_path] if request.attach_file and os.path.exists(file_path) else []
-        result = send_email(smtp_config, to_list, subject, body, cc_list, attachments,
-                            inline_images=inline_images)
-        
-        # Log
-        email_log = EmailLog(
-            execution_id=execution.id,
-            branch_name=branch,
-            recipient_to=", ".join(to_list),
-            recipient_cc=", ".join(cc_list),
-            subject=subject,
-            status="sent" if result["success"] else "failed",
-            error_message=result.get("message", "") if not result["success"] else "",
-            sent_at=datetime.utcnow() if result["success"] else None
-        )
-        db.add(email_log)
-        db.commit()
-        
-        results.append({
-            "branch": branch,
-            "status": "sent" if result["success"] else "failed",
-            "reason": result.get("message", "") if not result["success"] else "",
-        })
+        results.append(_send_branch_email(db, request, profile, execution, branch, to_list, cc_list))
     
     # Update execution
     execution.status = "completed"

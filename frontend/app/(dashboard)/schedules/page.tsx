@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CalendarClock, Clock, Trash2, CalendarDays, Repeat } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
+import { CalendarClock, Clock, Trash2, CalendarDays, Repeat, Pencil } from "lucide-react";
 
 const frequencyColors: Record<string, string> = {
   once: "bg-blue-50 text-blue-700 border-blue-200",
@@ -26,9 +29,17 @@ const frequencyIcons: Record<string, any> = {
 };
 
 export default function SchedulesPage() {
+  const { showToast } = useToast();
   const [schedules, setSchedules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelConfirm, setCancelConfirm] = useState<number | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<any>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editFrequency, setEditFrequency] = useState("once");
+  const [editNextRun, setEditNextRun] = useState("");
+  const [editEnabled, setEditEnabled] = useState(true);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     loadSchedules();
@@ -49,6 +60,37 @@ export default function SchedulesPage() {
     await api.cancelSchedule(id);
     setCancelConfirm(null);
     await loadSchedules();
+  };
+
+  const openEdit = (s: any) => {
+    setEditingSchedule(s);
+    setEditName(s.schedule_name || "");
+    setEditFrequency(s.frequency || "once");
+    // "YYYY-MM-DD HH:MM" -> "YYYY-MM-DDTHH:MM" for the datetime-local input
+    setEditNextRun((s.next_run || "").replace(" ", "T"));
+    setEditEnabled(!!s.enabled);
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingSchedule) return;
+    setSavingEdit(true);
+    try {
+      await api.updateSchedule(editingSchedule.id, {
+        schedule_name: editName,
+        frequency: editFrequency,
+        next_run: editNextRun || undefined,
+        enabled: editEnabled,
+      });
+      setEditOpen(false);
+      setEditingSchedule(null);
+      await loadSchedules();
+      showToast("Schedule updated", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update schedule", "error");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   return (
@@ -111,6 +153,14 @@ export default function SchedulesPage() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => openEdit(s)}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => setCancelConfirm(s.id)}
                   >
@@ -122,6 +172,49 @@ export default function SchedulesPage() {
           })}
         </div>
       )}
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md dark:bg-[#1A1A1A] dark:border-white/10">
+          <DialogHeader>
+            <DialogTitle className="dark:text-white">Edit Schedule</DialogTitle>
+            <DialogDescription className="dark:text-zinc-400">
+              Reschedule or rename this campaign. To change the report content, mapping, or files, create a new schedule instead.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Name</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Frequency</Label>
+                <select
+                  value={editFrequency}
+                  onChange={(e) => setEditFrequency(e.target.value)}
+                  className="w-full px-3 py-2 border border-zinc-200 dark:border-white/20 dark:bg-white/5 dark:text-white rounded-md text-sm"
+                >
+                  <option value="once">Once</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Next Run</Label>
+                <Input type="datetime-local" value={editNextRun} onChange={(e) => setEditNextRun(e.target.value)} />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={editEnabled} onChange={(e) => setEditEnabled(e.target.checked)} className="w-4 h-4 cursor-pointer" />
+              <span className="text-xs text-zinc-600 dark:text-zinc-300">Enabled</span>
+            </label>
+            <Button onClick={handleSaveEdit} className="w-full" disabled={savingEdit}>
+              {savingEdit ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={cancelConfirm !== null} onOpenChange={() => setCancelConfirm(null)}>
         <DialogContent className="sm:max-w-sm">

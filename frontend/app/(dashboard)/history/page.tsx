@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { History as HistoryIcon, ChevronLeft, ChevronRight, Search, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+import { History as HistoryIcon, ChevronLeft, ChevronRight, Search, CheckCircle2, XCircle, Loader2, RotateCcw, Download } from "lucide-react";
 
 const logStatusColors: Record<string, string> = {
   sent: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -27,6 +28,7 @@ const statusColors: Record<string, string> = {
 const ITEMS_PER_PAGE = 8;
 
 export default function HistoryPage() {
+  const { showToast } = useToast();
   const [executions, setExecutions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -36,6 +38,7 @@ export default function HistoryPage() {
   const [logsExecution, setLogsExecution] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     loadExecutions();
@@ -54,6 +57,26 @@ export default function HistoryPage() {
       setLogs([]);
     } finally {
       setLogsLoading(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!logsExecution) return;
+    setRetrying(true);
+    try {
+      const result = await api.retryExecution(logsExecution.id);
+      showToast(result.message, (result.failed ?? 0) > 0 ? "error" : "success");
+      const data = await api.getExecutions();
+      setExecutions(data);
+      const updated = data.find((e: any) => e.id === logsExecution.id);
+      if (updated) setLogsExecution(updated);
+      const logsData = await api.getEmailLogs(logsExecution.id);
+      const sorted = [...logsData].sort((a: any, b: any) => (a.status === "failed" ? -1 : 0) - (b.status === "failed" ? -1 : 0));
+      setLogs(sorted);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to retry", "error");
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -81,14 +104,44 @@ export default function HistoryPage() {
     setCurrentPage(1);
   }, [search, statusFilter]);
 
+  const csvCell = (value: any) => {
+    const s = String(value ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const handleExportCsv = () => {
+    if (filtered.length === 0) {
+      showToast("Nothing to export", "error");
+      return;
+    }
+    const headers = ["Campaign", "Status", "Sent", "Failed", "Created At", "Completed At"];
+    const rows = filtered.map((e) => [
+      e.campaign_name || "Unnamed", e.status || "", e.sent_count ?? 0, e.failed_count ?? 0, e.created_at || "", e.completed_at || "",
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `campaign-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main className="max-w-5xl mx-auto px-8 py-8 dark:text-white">
-      <div className="flex items-center gap-3 mb-8">
-        <HistoryIcon className="w-6 h-6 text-zinc-400" />
-        <div>
-          <h2 className="text-2xl font-bold text-[#0A0A0A] dark:text-white">Campaign History</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">Track all your campaign executions</p>
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <HistoryIcon className="w-6 h-6 text-zinc-400" />
+          <div>
+            <h2 className="text-2xl font-bold text-[#0A0A0A] dark:text-white">Campaign History</h2>
+            <p className="text-sm text-zinc-500 mt-0.5">Track all your campaign executions</p>
+          </div>
         </div>
+        <Button variant="outline" onClick={handleExportCsv}>
+          <Download className="w-4 h-4 mr-2" />
+          Export CSV
+        </Button>
       </div>
 
       {/* Filters */}
@@ -196,10 +249,20 @@ export default function HistoryPage() {
       <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{logsExecution?.campaign_name || "Campaign"}</DialogTitle>
-            <DialogDescription>
-              {logsExecution?.sent_count ?? 0} sent · {logsExecution?.failed_count ?? 0} failed · {logsExecution?.created_at || ""}
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-3 pr-6">
+              <div>
+                <DialogTitle>{logsExecution?.campaign_name || "Campaign"}</DialogTitle>
+                <DialogDescription>
+                  {logsExecution?.sent_count ?? 0} sent · {logsExecution?.failed_count ?? 0} failed · {logsExecution?.created_at || ""}
+                </DialogDescription>
+              </div>
+              {(logsExecution?.failed_count ?? 0) > 0 && (
+                <Button variant="outline" size="sm" onClick={handleRetry} disabled={retrying} className="shrink-0">
+                  {retrying ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <RotateCcw className="w-3.5 h-3.5 mr-1.5" />}
+                  Retry failed
+                </Button>
+              )}
+            </div>
           </DialogHeader>
           {logsLoading ? (
             <div className="flex items-center justify-center py-12">

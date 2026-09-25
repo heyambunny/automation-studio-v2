@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models import Execution, EmailLog
+from app.models import Execution, EmailLog, SMTPProfile
+from app.api.v1.campaigns_execute import CampaignExecuteRequest, _send_branch_email, _notify_campaign_result
 
 router = APIRouter(prefix="/executions", tags=["executions"])
 
@@ -84,6 +85,41 @@ def retry_execution(execution_id: int, db: Session = Depends(get_db), auth: tupl
     
     failed_logs = db.query(EmailLog).filter_by(execution_id=execution_id, status="failed").all()
     if not failed_logs:
-        return {"message": "No failed emails to retry"}
-    
-    return {"message": f"Retrying {len(failed_logs)} failed emails", "count": len(failed_logs)}
+        return {"message": "No failed emails to retry", "count": 0}
+
+    if not execution.campaign_config:
+        raise HTTPException(
+            status_code=400,
+            detail="This campaign was sent before retry support was added, so it can't be retried automatically",
+        )
+
+    request = CampaignExecuteRequest.model_validate_json(execution.campaign_config)
+    profile = db.query(SMTPProfile).filter_by(profile_name=request.smtp_profile).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="The SMTP profile used for this campaign no longer exists")
+
+    retried = []
+    for log in failed_logs:
+        to_list = [e.strip() for e in (log.recipient_to or "").split(",") if e.strip()]
+        cc_list = [e.strip() for e in (log.recipient_cc or "").split(",") if e.strip()]
+        retried.append(_send_branch_email(db, request, profile, execution, log.branch_name, to_list, cc_list, existing_log=log))
+
+    # Recompute totals from every log on this execution, not just the ones just retried
+    all_logs = db.query(EmailLog).filter_by(execution_id=execution_id).all()
+    execution.sent_count = sum(1 for l in all_logs if l.status == "sent")
+    execution.failed_count = sum(1 for l in all_logs if l.status == "failed")
+    execution.status = "completed"
+    db.commit()
+
+    try:
+        _notify_campaign_result(db, execution.user_id, execution, retried, profile)
+    except Exception as notify_err:
+        print(f"DEBUG: retry notification failed - {notify_err}")
+
+    newly_sent = sum(1 for r in retried if r["status"] == "sent")
+    return {
+        "message": f"Retried {len(retried)} email(s): {newly_sent} now sent, {len(retried) - newly_sent} still failed",
+        "count": len(retried),
+        "sent": newly_sent,
+        "failed": len(retried) - newly_sent,
+    }

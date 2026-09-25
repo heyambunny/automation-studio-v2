@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.core.audit import log_audit
 from app.schemas.settings import SMTPProfileCreate, SMTPProfileResponse, SettingUpdate
 from app.models import SMTPProfile, Setting
 from fastapi import Header
@@ -88,8 +89,11 @@ def delete_profile(profile_id: int, db: Session = Depends(get_db), auth: tuple =
         raise HTTPException(status_code=404, detail="Profile not found")
     if role != "admin" and profile.user_id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    profile_name = profile.profile_name
+    owner_id = profile.user_id
     db.delete(profile)
     db.commit()
+    log_audit(db, user_id, "smtp_profile.delete", "smtp_profile", profile_id, f"Deleted profile \"{profile_name}\" (owner user {owner_id})")
     return {"message": "Profile deleted"}
 
 @router.get("/settings")

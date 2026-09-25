@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.scheduler import start_scheduler
-from app.api.v1 import auth, dashboard as dashboard_api, settings as settings_api, mappings as mappings_api, templates as templates_api, executions as executions_api, schedules as schedules_api, campaigns as campaigns_api, data_browser as data_browser_api, users as users_api, games as games_api, campaigns_execute as campaigns_execute_api, notifications as notifications_api, announcements as announcements_api
+from app.api.v1 import auth, dashboard as dashboard_api, settings as settings_api, mappings as mappings_api, templates as templates_api, executions as executions_api, schedules as schedules_api, campaigns as campaigns_api, data_browser as data_browser_api, users as users_api, games as games_api, campaigns_execute as campaigns_execute_api, notifications as notifications_api, announcements as announcements_api, audit_logs as audit_logs_api
 
 app = FastAPI(title="Automation Studio API", version="2.0.0")
 
@@ -35,6 +35,7 @@ app.include_router(games_api.router, prefix="/api/v1")
 app.include_router(campaigns_execute_api.router, prefix="/api/v1")
 app.include_router(notifications_api.router, prefix="/api/v1")
 app.include_router(announcements_api.router, prefix="/api/v1")
+app.include_router(audit_logs_api.router, prefix="/api/v1")
 
 @app.get("/")
 def root():

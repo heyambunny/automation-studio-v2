@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from app.core.database import get_db
 from app.core.security import decode_token
@@ -17,6 +17,12 @@ class ScheduleCreateRequest(BaseModel):
     frequency: str  # once, daily, weekly, monthly
     run_at: datetime  # first (or only) run time, as local time - matches next_run
     campaign: CampaignExecuteRequest
+
+class ScheduleUpdateRequest(BaseModel):
+    schedule_name: Optional[str] = None
+    frequency: Optional[str] = None
+    next_run: Optional[datetime] = None
+    enabled: Optional[bool] = None
 
 def get_current_user(authorization: str = Header(...)):
     token = authorization.replace("Bearer ", "")
@@ -69,6 +75,35 @@ def get_schedules(db: Session = Depends(get_db), auth: tuple = Depends(get_curre
             "created_at": s.created_at.strftime("%Y-%m-%d") if s.created_at else ""
         })
     return result
+
+@router.put("/{schedule_id}")
+def update_schedule(schedule_id: int, payload: ScheduleUpdateRequest, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
+    user_id, role = auth
+    schedule = db.query(Schedule).filter_by(id=schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    if role != "admin" and schedule.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if payload.frequency is not None:
+        if payload.frequency not in FREQUENCIES:
+            raise HTTPException(status_code=400, detail=f"frequency must be one of {FREQUENCIES}")
+        schedule.frequency = payload.frequency
+    if payload.schedule_name is not None:
+        schedule.schedule_name = payload.schedule_name
+    if payload.next_run is not None:
+        schedule.next_run = payload.next_run
+    if payload.enabled is not None:
+        schedule.enabled = payload.enabled
+
+    db.commit()
+    return {
+        "id": schedule.id,
+        "schedule_name": schedule.schedule_name,
+        "frequency": schedule.frequency,
+        "next_run": schedule.next_run.strftime("%Y-%m-%d %H:%M") if schedule.next_run else "N/A",
+        "enabled": schedule.enabled,
+    }
 
 @router.delete("/{schedule_id}")
 def cancel_schedule(schedule_id: int, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
