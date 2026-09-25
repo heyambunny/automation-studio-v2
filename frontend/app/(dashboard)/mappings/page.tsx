@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/components/ui/toast";
 import { Download, Trash2, Eye, Upload, FileSpreadsheet, ChevronLeft, ChevronRight } from "lucide-react";
 
 const SAMPLE_CSV = "BranchName,To,CC\nMumbai,mumbai.manager@company.com;mumbai.assistant@company.com,regional.head@company.com\nDelhi,delhi.manager@company.com,regional.head@company.com;director@company.com\nBangalore,bangalore.manager@company.com,\n";
@@ -93,6 +94,7 @@ function validateMappingCsv(csvContent: string): { entries: { BranchName: string
 }
 
 export default function MappingsPage() {
+  const { showToast } = useToast();
   const [mappings, setMappings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [mappingName, setMappingName] = useState("");
@@ -152,6 +154,7 @@ export default function MappingsPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadMappings();
       setCurrentPage(1);
+      showToast("Mapping saved", "success");
     } catch (err: any) {
       const detail = err?.message;
       setError([typeof detail === "string" && detail ? detail : "Failed to save mapping"]);
@@ -159,11 +162,16 @@ export default function MappingsPage() {
   };
 
   const handleDelete = async (id: number) => {
-    await api.deleteMapping(id);
-    setDeleteConfirm(null);
-    await loadMappings();
-    if (paginatedMappings.length === 1 && currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+    try {
+      await api.deleteMapping(id);
+      setDeleteConfirm(null);
+      await loadMappings();
+      if (paginatedMappings.length === 1 && currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+      }
+      showToast("Mapping deleted", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete mapping", "error");
     }
   };
 

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models import Execution, EmailLog, SMTPProfile, Mapping, MappingEntry
+from app.models import Execution, EmailLog, SMTPProfile, Mapping, MappingEntry, Notification, Setting, User
 import os
 import tempfile
 import smtplib
@@ -139,6 +139,64 @@ def send_email(smtp_config, to_list, subject, html_body, cc_list=None, attachmen
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+def _notify_campaign_result(db: Session, user_id: int, execution, results, profile):
+    """Create an in-app notification for the campaign owner, and - if they
+    have failure alerts enabled (the default) - email them a summary too,
+    so a failure doesn't go unnoticed until someone happens to open History."""
+    failed = [r for r in results if r["status"] == "failed"]
+    campaign_name = execution.campaign_name or "Campaign"
+
+    if failed:
+        title = f"{len(failed)} email(s) failed in \"{campaign_name}\""
+        message = f"{execution.sent_count} sent, {execution.failed_count} failed."
+        notif_type = "campaign_failed"
+    else:
+        title = f"\"{campaign_name}\" sent successfully"
+        message = f"All {execution.sent_count} email(s) sent."
+        notif_type = "campaign_completed"
+
+    db.add(Notification(
+        user_id=user_id, type=notif_type, title=title, message=message,
+        link="/history",
+    ))
+    db.commit()
+
+    if not failed:
+        return
+
+    setting = db.query(Setting).filter_by(user_id=user_id).first()
+    notify_enabled = setting.notify_on_failure if (setting and setting.notify_on_failure is not None) else True
+    if not notify_enabled:
+        return
+
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user or not user.email:
+        return
+
+    rows = "".join(
+        f'<tr><td style="padding:4px 8px;border:1px solid #ddd;">{r["branch"]}</td>'
+        f'<td style="padding:4px 8px;border:1px solid #ddd;color:#c0392b;">{r["reason"]}</td></tr>'
+        for r in failed
+    )
+    body = (
+        f'<p>Your campaign "<b>{campaign_name}</b>" finished with '
+        f'{execution.sent_count} sent and {execution.failed_count} failed.</p>'
+        f'<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;">'
+        f'<tr><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Branch</th>'
+        f'<th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Reason</th></tr>'
+        f'{rows}</table>'
+        f'<p style="color:#888;font-size:12px;">You can turn this alert off in Settings.</p>'
+    )
+    smtp_config = {
+        "smtp_server": profile.smtp_server,
+        "smtp_port": profile.smtp_port,
+        "sender_email": profile.sender_email,
+        "sender_name": profile.sender_name,
+        "password": profile.password,
+    }
+    send_email(smtp_config, [user.email], f"⚠️ {len(failed)} email(s) failed - {campaign_name}", body)
+
+
 def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> dict:
     """Send one email per mapping entry for this campaign config. Shared by the
     execute-now endpoint and the schedule runner (app/core/scheduler.py)."""
@@ -245,7 +303,11 @@ def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> 
         db.add(email_log)
         db.commit()
         
-        results.append({"branch": branch, "status": "sent" if result["success"] else "failed"})
+        results.append({
+            "branch": branch,
+            "status": "sent" if result["success"] else "failed",
+            "reason": result.get("message", "") if not result["success"] else "",
+        })
     
     # Update execution
     execution.status = "completed"
@@ -253,6 +315,11 @@ def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> 
     execution.sent_count = sum(1 for r in results if r["status"] == "sent")
     execution.failed_count = sum(1 for r in results if r["status"] == "failed")
     db.commit()
+
+    try:
+        _notify_campaign_result(db, user_id, execution, results, profile)
+    except Exception as notify_err:
+        print(f"DEBUG: campaign notification failed - {notify_err}")
 
     return {"success": True, "sent": execution.sent_count, "failed": execution.failed_count, "results": results}
 

@@ -32,3 +32,4 @@ class SMTPProfileResponse(BaseModel):
 class SettingUpdate(BaseModel):
     default_sheet_name: Optional[str] = None
     default_starting_cell: Optional[str] = None
+    notify_on_failure: Optional[bool] = None

@@ -97,4 +97,10 @@ export const api = {
   deleteUser: (id: number) => apiRequest(`/users/${id}`, { method: "DELETE" }),
   getMyProfile: () => apiRequest<any>("/users/me"),
   updateMyProfile: (data: any) => apiRequest<any>("/users/me", { method: "PUT", body: JSON.stringify(data) }),
+  getNotifications: () => apiRequest<any[]>("/notifications/"),
+  getUnreadNotificationCount: () => apiRequest<{ count: number }>("/notifications/unread-count"),
+  markNotificationRead: (id: number) => apiRequest(`/notifications/${id}/read`, { method: "POST" }),
+  markAllNotificationsRead: () => apiRequest("/notifications/read-all", { method: "POST" }),
+  getUserSettings: () => apiRequest<any>("/settings/settings"),
+  updateUserSettings: (data: any) => apiRequest("/settings/settings", { method: "PUT", body: JSON.stringify(data) }),
 };

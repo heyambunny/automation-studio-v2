@@ -15,6 +15,7 @@ class Setting(Base):
     default_starting_cell = Column(String(10))
     outlook_enabled = Column(Boolean, default=False)
     logo_path = Column(String(500))
+    notify_on_failure = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

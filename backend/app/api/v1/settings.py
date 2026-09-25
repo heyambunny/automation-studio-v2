@@ -97,8 +97,12 @@ def get_settings(db: Session = Depends(get_db), auth: tuple = Depends(get_curren
     user_id, role = auth
     setting = db.query(Setting).filter_by(user_id=user_id).first()
     if not setting:
-        return {"default_sheet_name": "Summary", "default_starting_cell": "B5"}
-    return {"default_sheet_name": setting.default_sheet_name, "default_starting_cell": setting.default_starting_cell}
+        return {"default_sheet_name": "Summary", "default_starting_cell": "B5", "notify_on_failure": True}
+    return {
+        "default_sheet_name": setting.default_sheet_name,
+        "default_starting_cell": setting.default_starting_cell,
+        "notify_on_failure": setting.notify_on_failure if setting.notify_on_failure is not None else True,
+    }
 
 @router.put("/settings")
 def update_settings(update: SettingUpdate, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
@@ -112,5 +116,7 @@ def update_settings(update: SettingUpdate, db: Session = Depends(get_db), auth: 
             setting.default_sheet_name = update.default_sheet_name
         if update.default_starting_cell:
             setting.default_starting_cell = update.default_starting_cell
+        if update.notify_on_failure is not None:
+            setting.notify_on_failure = update.notify_on_failure
     db.commit()
     return {"message": "Settings updated"}

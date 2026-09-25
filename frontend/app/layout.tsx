@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeContextProvider } from "@/lib/theme-context";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 const inter = Inter({
@@ -40,7 +41,9 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
         <TooltipProvider>
           <ThemeContextProvider>
-            <ThemeProvider>{children}</ThemeProvider>
+            <ThemeProvider>
+              <ToastProvider>{children}</ToastProvider>
+            </ThemeProvider>
           </ThemeContextProvider>
         </TooltipProvider>
       </body>

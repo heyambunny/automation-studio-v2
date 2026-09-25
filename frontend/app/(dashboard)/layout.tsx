@@ -1,6 +1,7 @@
 "use client";
 
 import { Sidebar } from "@/components/layout/sidebar";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getUser, clearAuth } from "@/lib/auth";
@@ -72,7 +73,8 @@ export default function DashboardLayout({
             >
               {dark ? <Sun className="w-4 h-4 text-zinc-500" /> : <Moon className="w-4 h-4 text-zinc-500" />}
             </button>
-            <button 
+            <NotificationBell />
+            <button
               onClick={() => setProfileOpen(true)}
               className="flex items-center gap-2.5 hover:bg-zinc-100 dark:hover:bg-white/10 rounded-lg px-2 py-1 transition-colors cursor-pointer"
             >

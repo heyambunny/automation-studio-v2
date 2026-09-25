@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff, Bell } from "lucide-react";
 
 const AVATARS = [
   { id: "bear-brown", bg: "bg-amber-100", emoji: "🐻" },
@@ -25,6 +26,7 @@ const AVATARS = [
 ];
 
 export default function SettingsPage() {
+  const { showToast } = useToast();
   const [user, setUser] = useState<any>(null);
   const [profiles, setProfiles] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -69,6 +71,10 @@ export default function SettingsPage() {
   const [myName, setMyName] = useState("");
   const [myAvatar, setMyAvatar] = useState("bear-brown");
 
+  // Notification preferences
+  const [notifyOnFailure, setNotifyOnFailure] = useState(true);
+  const [notifySaving, setNotifySaving] = useState(false);
+
   useEffect(() => {
     loadData();
     const userData = JSON.parse(localStorage.getItem("user") || "{}");
@@ -87,28 +93,54 @@ export default function SettingsPage() {
     } catch (err) {
       // non-admins get a 403 here; that's expected, not an error
     }
+    try {
+      const s = await api.getUserSettings();
+      setNotifyOnFailure(s.notify_on_failure !== false);
+    } catch (err) {
+      console.error("Failed to load notification preferences");
+    }
     setLoading(false);
   };
 
+  const handleToggleNotify = async () => {
+    const next = !notifyOnFailure;
+    setNotifyOnFailure(next);
+    setNotifySaving(true);
+    try {
+      await api.updateUserSettings({ notify_on_failure: next });
+      showToast(next ? "Failure email alerts turned on" : "Failure email alerts turned off", "success");
+    } catch (err) {
+      setNotifyOnFailure(!next);
+      showToast("Failed to update notification preference", "error");
+    } finally {
+      setNotifySaving(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
-    await api.createSMTPProfile({
-      profile_name: profileName,
-      smtp_server: smtpServer,
-      smtp_port: parseInt(smtpPort),
-      sender_email: senderEmail,
-      sender_name: senderName,
-      password: password,
-      use_tls: true,
-      is_default: profiles.length === 0,
-    });
-    setDialogOpen(false);
-    setProfileName("");
-    setSmtpServer("");
-    setSmtpPort("587");
-    setSenderEmail("");
-    setSenderName("");
-    setPassword("");
-    await loadData();
+    try {
+      await api.createSMTPProfile({
+        profile_name: profileName,
+        smtp_server: smtpServer,
+        smtp_port: parseInt(smtpPort),
+        sender_email: senderEmail,
+        sender_name: senderName,
+        password: password,
+        use_tls: true,
+        is_default: profiles.length === 0,
+      });
+      setDialogOpen(false);
+      setProfileName("");
+      setSmtpServer("");
+      setSmtpPort("587");
+      setSenderEmail("");
+      setSenderName("");
+      setPassword("");
+      await loadData();
+      showToast("SMTP profile saved", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to save SMTP profile", "error");
+    }
   };
 
   const handleTestConnection = async () => {
@@ -164,24 +196,34 @@ export default function SettingsPage() {
   };
 
   const handleSaveEditProfile = async () => {
-    await api.updateSMTPProfile(editingProfile.id, {
-      profile_name: profileName,
-      smtp_server: smtpServer,
-      smtp_port: parseInt(smtpPort),
-      sender_email: senderEmail,
-      sender_name: senderName,
-      use_tls: true,
-      password: password || undefined,
-    });
-    setEditProfileOpen(false);
-    setEditingProfile(null);
-    await loadData();
+    try {
+      await api.updateSMTPProfile(editingProfile.id, {
+        profile_name: profileName,
+        smtp_server: smtpServer,
+        smtp_port: parseInt(smtpPort),
+        sender_email: senderEmail,
+        sender_name: senderName,
+        use_tls: true,
+        password: password || undefined,
+      });
+      setEditProfileOpen(false);
+      setEditingProfile(null);
+      await loadData();
+      showToast("SMTP profile updated", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update SMTP profile", "error");
+    }
   };
 
   const handleDelete = async (id: number) => {
-    await api.deleteSMTPProfile(id);
-    setDeleteConfirm(null);
-    await loadData();
+    try {
+      await api.deleteSMTPProfile(id);
+      setDeleteConfirm(null);
+      await loadData();
+      showToast("SMTP profile deleted", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete SMTP profile", "error");
+    }
   };
 
   const handleCreateUser = async () => {
@@ -234,12 +276,17 @@ export default function SettingsPage() {
   };
 
   const handleSaveMyProfile = async () => {
-    const updated = await api.updateMyProfile({ full_name: myName, avatar: myAvatar });
-    const merged = { ...user, ...updated };
-    setUser(merged);
-    localStorage.setItem("user", JSON.stringify(merged));
-    window.dispatchEvent(new Event("user-updated"));
-    setMyProfileOpen(false);
+    try {
+      const updated = await api.updateMyProfile({ full_name: myName, avatar: myAvatar });
+      const merged = { ...user, ...updated };
+      setUser(merged);
+      localStorage.setItem("user", JSON.stringify(merged));
+      window.dispatchEvent(new Event("user-updated"));
+      setMyProfileOpen(false);
+      showToast("Profile updated", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update profile", "error");
+    }
   };
 
   const isAdmin = user?.role === "admin";
@@ -294,6 +341,30 @@ export default function SettingsPage() {
             <p className="font-semibold text-sm dark:text-white">{user.full_name || "Unnamed"}</p>
             <Badge className="mt-1.5 capitalize text-xs">{user.role}</Badge>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-3 truncate">{user.email}</p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="mt-4 bg-white border border-zinc-200 rounded-2xl p-5 dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Bell className="w-4 h-4 text-zinc-500" />
+              <p className="text-sm font-semibold dark:text-white">Notifications</p>
+            </div>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyOnFailure}
+                disabled={notifySaving}
+                onChange={handleToggleNotify}
+                className="w-4 h-4 mt-0.5 cursor-pointer"
+              />
+              <span className="text-xs text-zinc-600 dark:text-zinc-300">
+                Email me when a campaign has failed sends
+              </span>
+            </label>
           </motion.div>
         </div>
       )}
