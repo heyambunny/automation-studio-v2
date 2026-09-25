@@ -103,4 +103,8 @@ export const api = {
   markAllNotificationsRead: () => apiRequest("/notifications/read-all", { method: "POST" }),
   getUserSettings: () => apiRequest<any>("/settings/settings"),
   updateUserSettings: (data: any) => apiRequest("/settings/settings", { method: "PUT", body: JSON.stringify(data) }),
+  getAnnouncements: () => apiRequest<any[]>("/announcements/"),
+  getAnnouncementBanner: () => apiRequest<{ announcement: any; view_number?: number; view_limit?: number }>("/announcements/banner"),
+  createAnnouncement: (data: any) => apiRequest<any>("/announcements/", { method: "POST", body: JSON.stringify(data) }),
+  deleteAnnouncement: (id: number) => apiRequest(`/announcements/${id}`, { method: "DELETE" }),
 };

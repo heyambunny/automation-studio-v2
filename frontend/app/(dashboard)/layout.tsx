@@ -2,6 +2,7 @@
 
 import { Sidebar } from "@/components/layout/sidebar";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { AnnouncementBanner } from "@/components/layout/announcement-banner";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getUser, clearAuth } from "@/lib/auth";
@@ -88,6 +89,7 @@ export default function DashboardLayout({
             </button>
           </div>
         </header>
+        <AnnouncementBanner />
         {children}
       </div>
 

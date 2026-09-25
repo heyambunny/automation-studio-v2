@@ -24,6 +24,7 @@ export default function LoginPage() {
     try {
       const result = await api.login(email, password);
       saveAuth(result);
+      sessionStorage.setItem("check_announcement_banner", "1");
       router.push("/dashboard");
     } catch (err) {
       setError("Invalid email or password");
@@ -67,10 +68,10 @@ export default function LoginPage() {
             <h1 className="text-4xl font-bold text-white leading-tight mb-6">
               Automate your
               <br />
-              branch reporting
+              email reporting
             </h1>
             <p className="text-zinc-400 text-lg mb-12">
-              Eliminate repetitive Excel work. Send personalized reports to every branch in minutes.
+              Eliminate repetitive Email work. Send personalized reports to every multiple users in seconds.
             </p>
 
             <div className="space-y-4">
