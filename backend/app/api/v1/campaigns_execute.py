@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.core.config import settings as app_settings
 from app.models import Execution, EmailLog, SMTPProfile, Mapping, MappingEntry, Notification, Setting, User
 import os
 import re
@@ -159,10 +160,104 @@ def send_email(smtp_config, to_list, subject, html_body, cc_list=None, attachmen
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+def _format_duration(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def _build_campaign_summary_email(campaign_name: str, execution, failed: list) -> str:
+    """A branded, table-based (Outlook-safe) HTML card: status, how long the
+    send took, sent/failed/total counts, the failed-branch table when there
+    are any, and a deep link straight back to this execution in History."""
+    duration = (
+        _format_duration((execution.completed_at - execution.created_at).total_seconds())
+        if execution.completed_at and execution.created_at else "—"
+    )
+    total = execution.total_emails or (execution.sent_count + execution.failed_count)
+    ok = len(failed) == 0
+    status_label = "Completed successfully" if ok else "Completed with failures"
+    status_bg, status_color = ("#ecfdf5", "#059669") if ok else ("#fef2f2", "#dc2626")
+    status_icon = "✅" if ok else "⚠️"
+    failed_bg, failed_color = ("#f4f4f5", "#71717a") if ok else ("#fef2f2", "#dc2626")
+    link = f"{app_settings.FRONTEND_URL}/history?execution={execution.id}"
+
+    failed_section = ""
+    if failed:
+        rows = "".join(
+            f'<tr><td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#27272a;">{r["branch"]}</td>'
+            f'<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#dc2626;">{r["reason"]}</td></tr>'
+            for r in failed
+        )
+        failed_section = f"""
+          <tr><td style="padding:0 32px 8px 32px;">
+            <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#27272a;">Failed branches</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #f0f0f0;border-radius:8px;overflow:hidden;">
+              <tr><th style="padding:8px 10px;text-align:left;font-size:11px;color:#a1a1aa;background:#fafafa;">Branch</th>
+                  <th style="padding:8px 10px;text-align:left;font-size:11px;color:#a1a1aa;background:#fafafa;">Reason</th></tr>
+              {rows}
+            </table>
+          </td></tr>
+        """
+
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:32px 0;font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
+      <tr><td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;">
+          <tr><td style="background:#0A0A0A;padding:24px 32px;">
+            <span style="color:#ffffff;font-size:18px;font-weight:700;">⚡ Automation Studio</span>
+          </td></tr>
+          <tr><td style="padding:28px 32px 4px 32px;">
+            <span style="display:inline-block;padding:5px 12px;border-radius:999px;background:{status_bg};color:{status_color};font-size:12px;font-weight:600;">{status_icon} {status_label}</span>
+            <h1 style="margin:14px 0 4px 0;font-size:19px;color:#0A0A0A;">{campaign_name}</h1>
+            <p style="margin:0;color:#71717a;font-size:13px;">Finished in {duration}</p>
+          </td></tr>
+          <tr><td style="padding:20px 32px 8px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td width="33%" align="center" style="padding:16px 6px;background:#fafafa;border-radius:12px;">
+                  <div style="font-size:22px;font-weight:700;color:#0A0A0A;">{total}</div>
+                  <div style="font-size:11px;color:#71717a;margin-top:2px;">Total</div>
+                </td>
+                <td width="3%"></td>
+                <td width="33%" align="center" style="padding:16px 6px;background:#ecfdf5;border-radius:12px;">
+                  <div style="font-size:22px;font-weight:700;color:#059669;">{execution.sent_count}</div>
+                  <div style="font-size:11px;color:#059669;margin-top:2px;">Sent</div>
+                </td>
+                <td width="3%"></td>
+                <td width="33%" align="center" style="padding:16px 6px;background:{failed_bg};border-radius:12px;">
+                  <div style="font-size:22px;font-weight:700;color:{failed_color};">{execution.failed_count}</div>
+                  <div style="font-size:11px;color:{failed_color};margin-top:2px;">Failed</div>
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+          {failed_section}
+          <tr><td style="padding:16px 32px 32px 32px;">
+            <a href="{link}" style="display:block;text-align:center;background:#0A0A0A;color:#ffffff;text-decoration:none;padding:13px 0;border-radius:10px;font-size:14px;font-weight:600;">View in Studio &rarr;</a>
+          </td></tr>
+          <tr><td style="padding:0 32px 24px 32px;">
+            <p style="margin:0 0 6px 0;color:#71717a;font-size:12px;text-align:center;">Thank you for using Automation Studio! 🎉</p>
+            <p style="margin:0;color:#a1a1aa;font-size:11px;text-align:center;">You can turn this off in Settings.</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+    """
+
+
 def _notify_campaign_result(db: Session, user_id: int, execution, results, profile):
     """Create an in-app notification for the campaign owner, and - if they
-    have failure alerts enabled (the default) - email them a summary too,
-    so a failure doesn't go unnoticed until someone happens to open History."""
+    have completion emails enabled (the default) - send a branded summary
+    card too, so results don't go unnoticed until someone happens to open
+    History. Fires for every completed campaign, not just failed ones."""
     failed = [r for r in results if r["status"] == "failed"]
     campaign_name = execution.campaign_name or "Campaign"
 
@@ -177,15 +272,12 @@ def _notify_campaign_result(db: Session, user_id: int, execution, results, profi
 
     db.add(Notification(
         user_id=user_id, type=notif_type, title=title, message=message,
-        link="/history",
+        link=f"/history?execution={execution.id}",
     ))
     db.commit()
 
-    if not failed:
-        return
-
     setting = db.query(Setting).filter_by(user_id=user_id).first()
-    notify_enabled = setting.notify_on_failure if (setting and setting.notify_on_failure is not None) else True
+    notify_enabled = setting.notify_on_completion if (setting and setting.notify_on_completion is not None) else True
     if not notify_enabled:
         return
 
@@ -193,20 +285,8 @@ def _notify_campaign_result(db: Session, user_id: int, execution, results, profi
     if not user or not user.email:
         return
 
-    rows = "".join(
-        f'<tr><td style="padding:4px 8px;border:1px solid #ddd;">{r["branch"]}</td>'
-        f'<td style="padding:4px 8px;border:1px solid #ddd;color:#c0392b;">{r["reason"]}</td></tr>'
-        for r in failed
-    )
-    body = (
-        f'<p>Your campaign "<b>{campaign_name}</b>" finished with '
-        f'{execution.sent_count} sent and {execution.failed_count} failed.</p>'
-        f'<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;">'
-        f'<tr><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Branch</th>'
-        f'<th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Reason</th></tr>'
-        f'{rows}</table>'
-        f'<p style="color:#888;font-size:12px;">You can turn this alert off in Settings.</p>'
-    )
+    subject = f"✅ \"{campaign_name}\" completed" if not failed else f"⚠️ \"{campaign_name}\" completed with {len(failed)} failure(s)"
+    body = _build_campaign_summary_email(campaign_name, execution, failed)
     smtp_config = {
         "smtp_server": profile.smtp_server,
         "smtp_port": profile.smtp_port,
@@ -214,7 +294,7 @@ def _notify_campaign_result(db: Session, user_id: int, execution, results, profi
         "sender_name": profile.sender_name,
         "password": profile.password,
     }
-    send_email(smtp_config, [user.email], f"⚠️ {len(failed)} email(s) failed - {campaign_name}", body)
+    send_email(smtp_config, [user.email], subject, body)
 
 
 def _send_branch_email(db: Session, request: CampaignExecuteRequest, profile, execution,

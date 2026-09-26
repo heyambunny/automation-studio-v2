@@ -6,8 +6,8 @@ recipients, send/schedule personalized emails, track history).
 
 ## Run locally
 
-Both processes read `backend/.env` (already configured, points at the shared
-Postgres DB) - no setup needed, just start them.
+Both processes read `backend/.env` (already configured, points at a local
+Postgres DB - separate from production's) - no setup needed, just start them.
 
 **Backend** (FastAPI on :8000):
 ```bash
@@ -47,7 +47,11 @@ not real production credentials):
 ## Deploy to production
 
 Server: `root@216.48.191.101`, domain `reporting.evolvebrands.tech`, app at
-`/opt/automation-studio-v2`, shared Postgres DB (same one local dev uses).
+`/opt/automation-studio-v2`, with its own Postgres DB - **not** the same one
+local dev uses. Data created against the local backend (a test user, an
+announcement, etc.) will not appear on production and vice versa; anything
+that needs to exist on production (like an announcement for real users) has
+to be created against the production API/DB directly.
 
 ```bash
 ssh root@216.48.191.101 "cd /opt/automation-studio-v2 && git pull origin main"

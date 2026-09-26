@@ -83,7 +83,7 @@ export default function SettingsPage() {
   const [myAvatar, setMyAvatar] = useState("bear-brown");
 
   // Notification preferences
-  const [notifyOnFailure, setNotifyOnFailure] = useState(true);
+  const [notifyOnCompletion, setNotifyOnCompletion] = useState(true);
   const [notifySaving, setNotifySaving] = useState(false);
 
   useEffect(() => {
@@ -106,7 +106,7 @@ export default function SettingsPage() {
     }
     try {
       const s = await api.getUserSettings();
-      setNotifyOnFailure(s.notify_on_failure !== false);
+      setNotifyOnCompletion(s.notify_on_completion !== false);
     } catch (err) {
       console.error("Failed to load notification preferences");
     }
@@ -159,14 +159,14 @@ export default function SettingsPage() {
   };
 
   const handleToggleNotify = async () => {
-    const next = !notifyOnFailure;
-    setNotifyOnFailure(next);
+    const next = !notifyOnCompletion;
+    setNotifyOnCompletion(next);
     setNotifySaving(true);
     try {
-      await api.updateUserSettings({ notify_on_failure: next });
-      showToast(next ? "Failure email alerts turned on" : "Failure email alerts turned off", "success");
+      await api.updateUserSettings({ notify_on_completion: next });
+      showToast(next ? "Campaign summary emails turned on" : "Campaign summary emails turned off", "success");
     } catch (err) {
-      setNotifyOnFailure(!next);
+      setNotifyOnCompletion(!next);
       showToast("Failed to update notification preference", "error");
     } finally {
       setNotifySaving(false);
@@ -418,13 +418,13 @@ export default function SettingsPage() {
             <label className="flex items-start gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
-                checked={notifyOnFailure}
+                checked={notifyOnCompletion}
                 disabled={notifySaving}
                 onChange={handleToggleNotify}
                 className="w-4 h-4 mt-0.5 cursor-pointer"
               />
               <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                Email me when a campaign has failed sends
+                Email me a summary card every time a campaign finishes (sent/failed counts, duration, and a link back to Studio)
               </span>
             </label>
           </motion.div>

@@ -15,7 +15,8 @@ class Setting(Base):
     default_starting_cell = Column(String(10))
     outlook_enabled = Column(Boolean, default=False)
     logo_path = Column(String(500))
-    notify_on_failure = Column(Boolean, default=True)
+    notify_on_failure = Column(Boolean, default=True)  # deprecated - superseded by notify_on_completion
+    notify_on_completion = Column(Boolean, default=True)  # email a summary card after every campaign finishes (success or failure)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

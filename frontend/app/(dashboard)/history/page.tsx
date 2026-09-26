@@ -44,6 +44,16 @@ export default function HistoryPage() {
     loadExecutions();
   }, []);
 
+  // Deep link from the campaign-completed email/notification: /history?execution=123
+  // opens that execution's log drill-down automatically.
+  useEffect(() => {
+    if (executions.length === 0) return;
+    const execId = new URLSearchParams(window.location.search).get("execution");
+    if (!execId) return;
+    const match = executions.find((e) => String(e.id) === execId);
+    if (match) openLogs(match);
+  }, [executions]);
+
   const openLogs = async (execution: any) => {
     setLogsExecution(execution);
     setLogsOpen(true);
