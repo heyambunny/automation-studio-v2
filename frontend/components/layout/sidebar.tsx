@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
+import { api } from "@/lib/api";
 import { LayoutDashboard, Settings, FileSpreadsheet, PlusCircle, History, FileText, Clock, Database, FolderOpen, Gamepad2, Megaphone, ShieldAlert, FlaskConical, Activity } from "lucide-react";
 
 const AVATARS: Record<string, { bg: string; emoji: string }> = {
@@ -21,27 +23,35 @@ const AVATARS: Record<string, { bg: string; emoji: string }> = {
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/campaigns/new", label: "New Campaign", icon: PlusCircle },
-  { href: "/laboratory", label: "Laboratory", icon: FlaskConical },
-  { href: "/mappings", label: "Mappings", icon: FileSpreadsheet },
-  { href: "/history", label: "History", icon: History },
-  { href: "/recipes", label: "Saved Campaigns", icon: FolderOpen },
-  { href: "/templates", label: "Templates", icon: FileText },
-  { href: "/schedules", label: "Schedules", icon: Clock },
-  { href: "/announcements", label: "Announcements", icon: Megaphone },
+  { href: "/campaigns/new", label: "New Campaign", icon: PlusCircle, feature: "new_campaign" },
+  { href: "/laboratory", label: "Laboratory", icon: FlaskConical, feature: "laboratory" },
+  { href: "/mappings", label: "Mappings", icon: FileSpreadsheet, feature: "mappings" },
+  { href: "/history", label: "History", icon: History, feature: "history" },
+  { href: "/recipes", label: "Saved Campaigns", icon: FolderOpen, feature: "recipes" },
+  { href: "/templates", label: "Templates", icon: FileText, feature: "templates" },
+  { href: "/schedules", label: "Schedules", icon: Clock, feature: "schedules" },
+  { href: "/announcements", label: "Announcements", icon: Megaphone, feature: "announcements" },
   { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/data-browser", label: "Data Browser", icon: Database, adminOnly: true },
-  { href: "/audit-log", label: "Audit Log", icon: ShieldAlert, adminOnly: true },
-  { href: "/user-activity", label: "User Activity", icon: Activity, adminOnly: true },
-  { href: "/games", label: "Mini Games", icon: Gamepad2 },
+  { href: "/data-browser", label: "Data Browser", icon: Database, adminOnly: true, feature: "data_browser" },
+  { href: "/audit-log", label: "Audit Log", icon: ShieldAlert, adminOnly: true, feature: "audit_log" },
+  { href: "/user-activity", label: "User Activity", icon: Activity, adminOnly: true, feature: "user_activity" },
+  { href: "/games", label: "Mini Games", icon: Gamepad2, feature: "games" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const user = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}") : {};
   const isAdmin = user.role === "admin";
-  const visibleItems = navItems.filter(item => !item.adminOnly || isAdmin);
+  const [effective, setEffective] = useState<Record<string, boolean>>({});
   const theme = useTheme();
+
+  useEffect(() => {
+    api.getEffectiveFeatures().then(setEffective).catch(() => {});
+  }, []);
+
+  const visibleItems = navItems.filter(
+    item => (!item.adminOnly || isAdmin) && (!item.feature || effective[item.feature] !== false)
+  );
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-56 bg-white dark:bg-[#0A0A0A] border-r border-zinc-100 dark:border-zinc-800 flex flex-col transition-colors">

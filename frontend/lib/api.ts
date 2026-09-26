@@ -111,6 +111,20 @@ export const api = {
   getAnnouncementBanner: () => apiRequest<{ announcement: any; view_number?: number; view_limit?: number }>("/announcements/banner"),
   createAnnouncement: (data: any) => apiRequest<any>("/announcements/", { method: "POST", body: JSON.stringify(data) }),
   deleteAnnouncement: (id: number) => apiRequest(`/announcements/${id}`, { method: "DELETE" }),
+  getFeatureAccess: () => apiRequest<{
+    features: { key: string; label: string }[];
+    role_overrides: { feature_key: string; role: string; enabled: boolean }[];
+    user_overrides: { feature_key: string; user_id: number; enabled: boolean; user_email: string | null; user_name: string | null }[];
+  }>("/feature-access/"),
+  getEffectiveFeatures: () => apiRequest<Record<string, boolean>>("/feature-access/effective"),
+  setRoleFeature: (feature_key: string, role: string, enabled: boolean) =>
+    apiRequest("/feature-access/role", { method: "PUT", body: JSON.stringify({ feature_key, role, enabled }) }),
+  resetRoleFeature: (feature_key: string, role: string) =>
+    apiRequest(`/feature-access/role/${feature_key}/${role}`, { method: "DELETE" }),
+  setUserFeature: (feature_key: string, user_id: number, enabled: boolean) =>
+    apiRequest("/feature-access/user", { method: "PUT", body: JSON.stringify({ feature_key, user_id, enabled }) }),
+  resetUserFeature: (feature_key: string, user_id: number) =>
+    apiRequest(`/feature-access/user/${feature_key}/${user_id}`, { method: "DELETE" }),
   analyzeSplitFile: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);

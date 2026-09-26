@@ -10,3 +10,4 @@ from app.models.notification import Notification
 from app.models.announcement import Announcement, AnnouncementView
 
 from app.models.game_score import GameScore
+from app.models.feature_access import FeatureAccess

@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff, Bell } from "lucide-react";
+import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff, Bell, SlidersHorizontal, X } from "lucide-react";
 
 const AVATARS = [
   { id: "bear-brown", bg: "bg-amber-100", emoji: "🐻" },
@@ -31,7 +32,17 @@ export default function SettingsPage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"smtp" | "users" | "profile">("users");
+  const [activeTab, setActiveTab] = useState<"smtp" | "users" | "profile" | "features">("users");
+
+  // Feature control
+  const [featureAccess, setFeatureAccess] = useState<{
+    features: { key: string; label: string }[];
+    role_overrides: { feature_key: string; role: string; enabled: boolean }[];
+    user_overrides: { feature_key: string; user_id: number; enabled: boolean; user_email: string | null; user_name: string | null }[];
+  }>({ features: [], role_overrides: [], user_overrides: [] });
+  const [overrideUserId, setOverrideUserId] = useState("");
+  const [overrideFeatureKey, setOverrideFeatureKey] = useState("");
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
 
   // SMTP form
   const [profileName, setProfileName] = useState("");
@@ -99,7 +110,52 @@ export default function SettingsPage() {
     } catch (err) {
       console.error("Failed to load notification preferences");
     }
+    try {
+      setFeatureAccess(await api.getFeatureAccess());
+    } catch (err) {
+      // non-admins get a 403 here; that's expected, not an error
+    }
     setLoading(false);
+  };
+
+  const isRoleFeatureEnabled = (featureKey: string, role: string) => {
+    const row = featureAccess.role_overrides.find((r) => r.feature_key === featureKey && r.role === role);
+    return row ? row.enabled : true;
+  };
+
+  const handleToggleRoleFeature = async (featureKey: string, role: string, featureLabel: string) => {
+    const next = !isRoleFeatureEnabled(featureKey, role);
+    try {
+      await api.setRoleFeature(featureKey, role, next);
+      setFeatureAccess(await api.getFeatureAccess());
+      showToast(`${featureLabel} ${next ? "enabled" : "disabled"} for ${role === "admin" ? "Admins" : "Managers"}`, "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update feature access", "error");
+    }
+  };
+
+  const handleAddUserOverride = async () => {
+    if (!overrideUserId || !overrideFeatureKey) return;
+    try {
+      await api.setUserFeature(overrideFeatureKey, parseInt(overrideUserId), overrideEnabled);
+      setFeatureAccess(await api.getFeatureAccess());
+      setOverrideUserId("");
+      setOverrideFeatureKey("");
+      setOverrideEnabled(false);
+      showToast("Override added", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to add override", "error");
+    }
+  };
+
+  const handleRemoveUserOverride = async (featureKey: string, userId: number) => {
+    try {
+      await api.resetUserFeature(featureKey, userId);
+      setFeatureAccess(await api.getFeatureAccess());
+      showToast("Override removed", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to remove override", "error");
+    }
   };
 
   const handleToggleNotify = async () => {
@@ -320,6 +376,12 @@ export default function SettingsPage() {
           <Mail className="w-4 h-4" />
           SMTP Profiles
         </button>
+        {isAdmin && (
+          <button onClick={() => setActiveTab("features")} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "features" ? "bg-white dark:bg-white/15 shadow-sm dark:text-white" : "text-zinc-500 dark:text-zinc-400"}`}>
+            <SlidersHorizontal className="w-4 h-4" />
+            Features
+          </button>
+        )}
       </div>
 
       {/* My Profile */}
@@ -545,6 +607,113 @@ export default function SettingsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Feature Control */}
+      {activeTab === "features" && isAdmin && (
+        <div className="space-y-8">
+          <div>
+            <p className="text-sm font-semibold dark:text-white mb-1">By Role</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">Turn a page on or off for every user with that role. A user-specific override below always wins over this.</p>
+            <Card className="border-zinc-100 shadow-none dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10">
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Feature</TableHead>
+                      <TableHead className="text-center">Admin</TableHead>
+                      <TableHead className="text-center">Manager</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {featureAccess.features.map((f) => (
+                      <TableRow key={f.key}>
+                        <TableCell className="font-medium text-sm dark:text-white">{f.label}</TableCell>
+                        {["admin", "manager"].map((role) => {
+                          const enabled = isRoleFeatureEnabled(f.key, role);
+                          return (
+                            <TableCell key={role} className="text-center">
+                              <button
+                                onClick={() => handleToggleRoleFeature(f.key, role, f.label)}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${enabled ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-700"}`}
+                                title={enabled ? "Enabled - click to disable" : "Disabled - click to enable"}
+                              >
+                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-5" : "translate-x-1"}`} />
+                              </button>
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold dark:text-white mb-1">Per-User Overrides</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">Enable or disable a specific feature for one person, regardless of their role's default.</p>
+
+            <Card className="border-zinc-100 shadow-none dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10 mb-4">
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">User</Label>
+                    <select value={overrideUserId} onChange={(e) => setOverrideUserId(e.target.value)} className="px-3 py-2 border border-zinc-200 dark:border-white/20 dark:bg-white/5 dark:text-white rounded-md text-sm min-w-[180px]">
+                      <option value="">Select user…</option>
+                      {users.map((u: any) => (
+                        <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Feature</Label>
+                    <select value={overrideFeatureKey} onChange={(e) => setOverrideFeatureKey(e.target.value)} className="px-3 py-2 border border-zinc-200 dark:border-white/20 dark:bg-white/5 dark:text-white rounded-md text-sm min-w-[160px]">
+                      <option value="">Select feature…</option>
+                      {featureAccess.features.map((f) => (
+                        <option key={f.key} value={f.key}>{f.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Access</Label>
+                    <select value={overrideEnabled ? "enabled" : "disabled"} onChange={(e) => setOverrideEnabled(e.target.value === "enabled")} className="px-3 py-2 border border-zinc-200 dark:border-white/20 dark:bg-white/5 dark:text-white rounded-md text-sm">
+                      <option value="disabled">Disabled</option>
+                      <option value="enabled">Enabled</option>
+                    </select>
+                  </div>
+                  <Button onClick={handleAddUserOverride} disabled={!overrideUserId || !overrideFeatureKey}>
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    Add Override
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {featureAccess.user_overrides.length === 0 ? (
+              <p className="text-sm text-zinc-400 px-1">No per-user overrides yet</p>
+            ) : (
+              <div className="space-y-2">
+                {featureAccess.user_overrides.map((o) => {
+                  const label = featureAccess.features.find((f) => f.key === o.feature_key)?.label || o.feature_key;
+                  return (
+                    <div key={`${o.feature_key}-${o.user_id}`} className="flex items-center justify-between bg-white border border-zinc-200 rounded-xl px-4 py-2.5 dark:bg-white/5 dark:border-white/10">
+                      <div className="text-sm dark:text-white">
+                        <span className="font-medium">{o.user_name || o.user_email}</span>
+                        <span className="text-zinc-400"> · {label} · </span>
+                        <span className={o.enabled ? "text-emerald-600" : "text-red-600"}>{o.enabled ? "Enabled" : "Disabled"}</span>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRemoveUserOverride(o.feature_key, o.user_id)} title="Remove override">
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Edit SMTP Profile Dialog */}

@@ -5,9 +5,11 @@ import { NotificationBell } from "@/components/layout/notification-bell";
 import { AnnouncementBanner } from "@/components/layout/announcement-banner";
 import { LabJobProvider } from "@/components/lab/lab-job-context";
 import { LabJobIndicator } from "@/components/layout/lab-job-indicator";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getUser, clearAuth } from "@/lib/auth";
+import { api } from "@/lib/api";
+import { featureKeyForPath } from "@/lib/features";
 import { Button } from "@/components/ui/button";
 import { LogOut, Moon, Sun } from "lucide-react";
 import { useDarkMode } from "@/lib/theme-context";
@@ -31,7 +33,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
+  const [effectiveFeatures, setEffectiveFeatures] = useState<Record<string, boolean> | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const { dark, toggle } = useDarkMode();
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -53,6 +57,18 @@ export default function DashboardLayout({
     window.addEventListener("user-updated", onUserUpdated);
     return () => window.removeEventListener("user-updated", onUserUpdated);
   }, [router]);
+
+  useEffect(() => {
+    api.getEffectiveFeatures().then(setEffectiveFeatures).catch(() => setEffectiveFeatures({}));
+  }, []);
+
+  useEffect(() => {
+    if (!effectiveFeatures) return;
+    const key = featureKeyForPath(pathname);
+    if (key && effectiveFeatures[key] === false) {
+      router.replace("/dashboard");
+    }
+  }, [pathname, effectiveFeatures, router]);
 
   if (!user) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
