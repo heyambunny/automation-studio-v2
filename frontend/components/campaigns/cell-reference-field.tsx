@@ -56,7 +56,16 @@ export function CellReferenceField({
   const activeSheet = hasSheets ? sheetQuery.trim() : defaultSheetName;
   const cellPreview = cellIsComplete ? getCellValue(activeSheet, cellQuery.trim()) : null;
 
-  const close = () => { setOpen(false); setTriggerStart(null); setQuery(""); setHighlight(0); };
+  // Guarded so a keystroke that isn't part of an active "#" reference (the
+  // overwhelming majority of typing) touches zero state - React bails out of
+  // an unconditional setState(sameValue) individually anyway, but skipping
+  // the calls entirely avoids scheduling any work at all on every keystroke.
+  const close = () => {
+    if (open) setOpen(false);
+    if (triggerStart !== null) setTriggerStart(null);
+    if (query !== "") setQuery("");
+    if (highlight !== 0) setHighlight(0);
+  };
 
   const recompute = (text: string, cursor: number) => {
     const upto = text.slice(0, cursor);

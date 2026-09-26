@@ -99,9 +99,17 @@ export default function NewCampaignPage() {
   const [previewData, setPreviewData] = useState<any>(null);
   const [mappedBranches, setMappedBranches] = useState<string[]>([]);
   const [readyBranches, setReadyBranches] = useState<string[]>([]);
+  const [missingFiles, setMissingFiles] = useState<string[]>([]);
+  const [extraFiles, setExtraFiles] = useState<string[]>([]);
   const [summaryHtml, setSummaryHtml] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [previewWorkbook, setPreviewWorkbook] = useState<any>(null);
+  const [cellValidation, setCellValidation] = useState<{
+    status: "idle" | "checking" | "done";
+    issues: { branch: string; sheet: string; cell: string; status: "empty" | "missing_sheet" }[];
+    checked: number;
+    total: number;
+  }>({ status: "idle", issues: [], checked: 0, total: 0 });
 
   useEffect(() => {
     loadInitialData();
@@ -214,18 +222,34 @@ export default function NewCampaignPage() {
       api.getMappingEntries(mapping?.id).then((entries: any[]) => {
         const mappedNames = entries.map(e => e.branch_name);
         const fileNames = Array.from(files).map(f => f.name.replace(/\.(xlsx|xls|xlsb|csv)$/i, ""));
-        
+
         // Only branches that are BOTH in mapping AND have a file
-        const ready = mappedNames.filter(name => 
+        const ready = mappedNames.filter(name =>
           fileNames.some(fn => fn.toLowerCase() === name.toLowerCase())
         );
-        
+        // In the mapping but no matching file was uploaded - that branch won't get an email
+        const missing = mappedNames.filter(name =>
+          !fileNames.some(fn => fn.toLowerCase() === name.toLowerCase())
+        );
+        // A file was uploaded but no branch in this mapping has that name - likely a
+        // typo or the wrong file, so it silently sends nothing without this callout
+        const extra = fileNames.filter(fn =>
+          !mappedNames.some(name => name.toLowerCase() === fn.toLowerCase())
+        );
+
         setMappedBranches(mappedNames);
         setReadyBranches(ready);
+        setMissingFiles(missing);
+        setExtraFiles(extra);
       }).catch(() => {
         setMappedBranches([]);
         setReadyBranches([]);
+        setMissingFiles([]);
+        setExtraFiles([]);
       });
+    } else {
+      setMissingFiles([]);
+      setExtraFiles([]);
     }
   }, [selectedMapping, files, mappings]);
 
@@ -308,6 +332,64 @@ export default function NewCampaignPage() {
       const lookup = getCellValue(sheet, cellGroup);
       return lookup.found ? lookup.value : "";
     });
+
+  // Safety net for {{Cell:...}} references: nobody can eyeball every branch's
+  // file before sending, so once the Preview step is reached this opens every
+  // ready branch's own file and checks each referenced cell actually has a
+  // value there (not just in whichever branch happens to be selected above).
+  useEffect(() => {
+    if (currentStep !== 3) return;
+
+    const seen = new Set<string>();
+    const refs: { sheet: string; cell: string }[] = [];
+    for (const m of `${subject}\n${bodyTemplate}`.matchAll(CELL_REF_RE)) {
+      const sheet = (m[1] || sheetName || "").trim();
+      const cell = (m[2] || "").toUpperCase();
+      const key = `${sheet.toLowerCase()}|${cell}`;
+      if (!seen.has(key)) { seen.add(key); refs.push({ sheet, cell }); }
+    }
+
+    if (refs.length === 0 || readyBranches.length === 0) {
+      setCellValidation({ status: "done", issues: [], checked: 0, total: 0 });
+      return;
+    }
+
+    let cancelled = false;
+    setCellValidation({ status: "checking", issues: [], checked: 0, total: readyBranches.length });
+
+    (async () => {
+      const issues: { branch: string; sheet: string; cell: string; status: "empty" | "missing_sheet" }[] = [];
+      for (let i = 0; i < readyBranches.length; i++) {
+        if (cancelled) return;
+        const branch = readyBranches[i];
+        const file = findBranchFile(branch);
+        if (file) {
+          try {
+            const XLSX = await import("xlsx");
+            const buf = await file.arrayBuffer();
+            const workbook = XLSX.read(new Uint8Array(buf), { type: "array" });
+            for (const ref of refs) {
+              const matchName = workbook.SheetNames.find((n: string) => n.toLowerCase() === ref.sheet.toLowerCase());
+              if (!matchName) {
+                issues.push({ branch, sheet: ref.sheet, cell: ref.cell, status: "missing_sheet" });
+                continue;
+              }
+              const ws = workbook.Sheets[matchName];
+              const cellObj = ws[ref.cell];
+              const val = cellObj ? String(cellObj.w ?? cellObj.v ?? "") : "";
+              if (!val) issues.push({ branch, sheet: ref.sheet, cell: ref.cell, status: "empty" });
+            }
+          } catch (err) {
+            // unreadable file - nothing more we can check client-side, skip silently
+          }
+        }
+        if (!cancelled) setCellValidation((prev) => ({ ...prev, checked: i + 1 }));
+      }
+      if (!cancelled) setCellValidation({ status: "done", issues, checked: readyBranches.length, total: readyBranches.length });
+    })();
+
+    return () => { cancelled = true; };
+  }, [currentStep, readyBranches, subject, bodyTemplate, sheetName]);
 
   // Render the {{Summary}} block exactly as recipients will see it
   useEffect(() => {
@@ -563,6 +645,24 @@ export default function NewCampaignPage() {
                   <Input type="file" multiple accept=".xlsx,.xls,.xlsb,.csv" onChange={handleFileUpload} className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white" />
                   {files && <p className="text-xs text-emerald-600">{files.length} files selected</p>}
                 </div>
+
+                {selectedMapping && files && files.length > 0 && (
+                  <div className="rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/5 p-4 space-y-2">
+                    <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                      ✅ {readyBranches.length} of {mappedBranches.length} mapped branch{mappedBranches.length === 1 ? "" : "es"} will get an email
+                    </p>
+                    {missingFiles.length > 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        ⚠ No file uploaded for: <span className="font-medium">{missingFiles.join(", ")}</span>
+                      </p>
+                    )}
+                    {extraFiles.length > 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        ⚠ Uploaded but not in this mapping (won't be sent): <span className="font-medium">{extraFiles.join(", ")}</span>
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -729,6 +829,36 @@ export default function NewCampaignPage() {
                 
                 {readyBranches.length === 0 && (
                   <p className="text-amber-600 text-sm mb-4">⚠️ No branches ready — check your mapping and uploaded files</p>
+                )}
+
+                {cellValidation.total > 0 && (
+                  <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+                    cellValidation.status === "checking"
+                      ? "bg-zinc-50 border-zinc-200 text-zinc-500 dark:bg-white/5 dark:border-white/10 dark:text-zinc-400"
+                      : cellValidation.issues.length === 0
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-400"
+                        : "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400"
+                  }`}>
+                    {cellValidation.status === "checking" ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Checking cell references across branches… ({cellValidation.checked}/{cellValidation.total})
+                      </span>
+                    ) : cellValidation.issues.length === 0 ? (
+                      <span>✅ Every cell reference has a value in all {cellValidation.total} branch file{cellValidation.total === 1 ? "" : "s"}.</span>
+                    ) : (
+                      <div>
+                        <p className="font-medium mb-1.5">⚠ {cellValidation.issues.length} issue{cellValidation.issues.length === 1 ? "" : "s"} found across branch files — double-check before sending:</p>
+                        <ul className="space-y-0.5 text-xs">
+                          {cellValidation.issues.map((issue, i) => (
+                            <li key={i}>
+                              <span className="font-medium">{issue.branch}</span>: {issue.sheet}!{issue.cell} — {issue.status === "missing_sheet" ? "sheet not found in this file" : "cell is empty"}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <div className="max-w-xl mx-auto border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden">
