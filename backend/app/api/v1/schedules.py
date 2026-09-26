@@ -3,10 +3,14 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+import json
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models import Schedule
-from app.api.v1.campaigns_execute import CampaignExecuteRequest
+from app.models import Schedule, SMTPProfile, Setting, User
+from app.api.v1.campaigns_execute import (
+    CampaignExecuteRequest, send_email, _build_schedule_confirmation_email, _smtp_config_from_profile,
+)
+from app.services.mascot_service import generate_bounce_gif
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 
@@ -50,11 +54,37 @@ def create_schedule(payload: ScheduleCreateRequest, db: Session = Depends(get_db
     db.add(schedule)
     db.commit()
     db.refresh(schedule)
+
+    try:
+        _send_schedule_confirmation(db, schedule)
+    except Exception as e:
+        print(f"DEBUG: schedule confirmation email failed - {e}")
+
     return {
         "id": schedule.id,
         "schedule_name": schedule.schedule_name,
         "next_run": schedule.next_run.strftime("%Y-%m-%d %H:%M"),
     }
+
+
+def _send_schedule_confirmation(db: Session, schedule: Schedule):
+    setting = db.query(Setting).filter_by(user_id=schedule.user_id).first()
+    notify_enabled = setting.notify_on_completion if (setting and setting.notify_on_completion is not None) else True
+    if not notify_enabled:
+        return
+
+    user = db.query(User).filter_by(id=schedule.user_id).first()
+    if not user or not user.email:
+        return
+
+    config = json.loads(schedule.campaign_config)
+    profile = db.query(SMTPProfile).filter_by(profile_name=config.get("smtp_profile")).first()
+    if not profile:
+        return
+
+    body = _build_schedule_confirmation_email(schedule.schedule_name, schedule.frequency, schedule.next_run)
+    mascot = generate_bounce_gif((29, 78, 216), "excited")
+    send_email(_smtp_config_from_profile(profile), [user.email], f"📅 \"{schedule.schedule_name}\" scheduled", body, inline_images=[("mascot", mascot)])
 
 @router.get("/")
 def get_schedules(db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):

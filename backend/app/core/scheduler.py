@@ -15,6 +15,12 @@ Known limitation: recurring schedules resend the same branch files every time
 (there is no mechanism to refresh them automatically) - useful for a fixed
 recurring notice, not for numbers that change daily. "Once" schedules are the
 well-supported case: upload now, send later.
+
+A second job, send_upcoming_reminders(), polls the same table for schedules
+about to fire in the next 15 minutes and emails a "starting soon" heads-up
+once per occurrence - separate from the "scheduled" confirmation email sent
+at creation time (schedules.py) and the "completed" summary email sent after
+run_campaign() finishes (campaigns_execute.py).
 """
 import json
 from datetime import datetime, timedelta
@@ -76,10 +82,52 @@ def run_due_schedules():
         db.close()
 
 
+def send_upcoming_reminders():
+    """Every schedule due in the next 15 minutes gets a "starting soon" email,
+    once per occurrence - last_reminder_sent_for tracks which next_run value
+    was last reminded about, so a recurring schedule gets a fresh reminder
+    each time it's advanced instead of being reminded once and never again."""
+    from app.models import SMTPProfile, Setting, User
+    from app.api.v1.campaigns_execute import send_email, _build_schedule_reminder_email, _smtp_config_from_profile
+    from app.services.mascot_service import generate_bounce_gif
+
+    db = SessionLocal()
+    try:
+        now = datetime.now()
+        window_end = now + timedelta(minutes=15)
+        upcoming = (
+            db.query(Schedule)
+            .filter(Schedule.enabled == True, Schedule.next_run > now, Schedule.next_run <= window_end)  # noqa: E712
+            .all()
+        )
+        for sched in upcoming:
+            if sched.last_reminder_sent_for == sched.next_run:
+                continue
+            try:
+                setting = db.query(Setting).filter_by(user_id=sched.user_id).first()
+                notify_enabled = setting.notify_on_completion if (setting and setting.notify_on_completion is not None) else True
+                if notify_enabled:
+                    user = db.query(User).filter_by(id=sched.user_id).first()
+                    config = json.loads(sched.campaign_config)
+                    profile = db.query(SMTPProfile).filter_by(profile_name=config.get("smtp_profile")).first()
+                    if user and user.email and profile:
+                        body = _build_schedule_reminder_email(sched.schedule_name, sched.next_run)
+                        mascot = generate_bounce_gif((180, 83, 9), "excited")
+                        send_email(_smtp_config_from_profile(profile), [user.email], f"⏰ \"{sched.schedule_name}\" starts in 15 minutes", body, inline_images=[("mascot", mascot)])
+            except Exception as e:  # noqa: BLE001 - one bad reminder must not block the rest
+                print(f"Reminder for schedule {sched.id} ({sched.schedule_name!r}) failed: {e}")
+
+            sched.last_reminder_sent_for = sched.next_run
+            db.commit()
+    finally:
+        db.close()
+
+
 def start_scheduler():
     global _started
     if _started:
         return
     _scheduler.add_job(run_due_schedules, "interval", minutes=1, id="run_due_schedules", replace_existing=True)
+    _scheduler.add_job(send_upcoming_reminders, "interval", minutes=1, id="send_upcoming_reminders", replace_existing=True)
     _scheduler.start()
     _started = True

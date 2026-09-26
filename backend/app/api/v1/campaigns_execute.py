@@ -24,6 +24,7 @@ from app.services.excel_service import (
     _plain_table_html, prewarm_xlsb_conversions, prewarm_summary_images,
     get_cell_value,
 )
+from app.services.mascot_service import generate_bounce_gif
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -125,10 +126,11 @@ def send_email(smtp_config, to_list, subject, html_body, cc_list=None, attachmen
         if inline_images:
             related = MIMEMultipart("related")
             related.attach(MIMEText(html_body, "html"))
-            for cid, png_bytes in inline_images:
-                img = MIMEImage(png_bytes, _subtype="png")
+            for cid, img_bytes in inline_images:
+                subtype = "gif" if img_bytes[:6] in (b"GIF87a", b"GIF89a") else "png"
+                img = MIMEImage(img_bytes, _subtype=subtype)
                 img.add_header("Content-ID", f"<{cid}>")
-                img.add_header("Content-Disposition", "inline", filename=f"{cid}.png")
+                img.add_header("Content-Disposition", "inline", filename=f"{cid}.{subtype}")
                 related.attach(img)
             msg.attach(related)
         else:
@@ -173,6 +175,105 @@ def _format_duration(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
+def _format_when(dt: "datetime") -> str:
+    return dt.strftime("%b %d, %Y at %-I:%M %p")
+
+
+def _smtp_config_from_profile(profile) -> dict:
+    return {
+        "smtp_server": profile.smtp_server,
+        "smtp_port": profile.smtp_port,
+        "sender_email": profile.sender_email,
+        "sender_name": profile.sender_name,
+        "password": profile.password,
+    }
+
+
+_FREQUENCY_LABELS = {"once": "One-time", "daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}
+
+_EMAIL_FOOTER = """
+          <tr><td style="padding:0 32px 24px 32px;">
+            <p style="margin:0 0 6px 0;color:#71717a;font-size:12px;text-align:center;">Thank you for using Automation Studio! 🎉</p>
+            <p style="margin:0;color:#a1a1aa;font-size:11px;text-align:center;">You can turn this off in Settings.</p>
+          </td></tr>
+"""
+
+
+def _build_schedule_confirmation_email(schedule_name: str, frequency: str, next_run) -> str:
+    """Blue, calendar-themed card confirming a campaign has been scheduled -
+    visually distinct from the completion (black/green) and reminder
+    (amber) cards so the three are easy to tell apart at a glance."""
+    link = f"{app_settings.FRONTEND_URL}/schedules"
+    frequency_label = _FREQUENCY_LABELS.get(frequency, frequency.title())
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:32px 0;font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
+      <tr><td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;">
+          <tr><td style="background:#1d4ed8;padding:24px 32px;">
+            <span style="color:#ffffff;font-size:18px;font-weight:700;">📅 Automation Studio</span>
+          </td></tr>
+          <tr><td align="center" style="padding:20px 0 0 0;">
+            <img src="cid:mascot" width="90" height="75" alt="" style="display:block;border:0;">
+          </td></tr>
+          <tr><td style="padding:12px 32px 4px 32px;">
+            <span style="display:inline-block;padding:5px 12px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:600;">🗓️ Scheduled</span>
+            <h1 style="margin:14px 0 4px 0;font-size:19px;color:#0A0A0A;">{schedule_name}</h1>
+            <p style="margin:0;color:#71717a;font-size:13px;">Your campaign has been scheduled and will run automatically.</p>
+          </td></tr>
+          <tr><td style="padding:20px 32px 8px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #f0f0f0;border-radius:10px;">
+              <tr>
+                <td style="padding:12px 16px;font-size:12px;color:#a1a1aa;border-bottom:1px solid #f4f4f5;">Frequency</td>
+                <td style="padding:12px 16px;font-size:13px;color:#0A0A0A;font-weight:600;border-bottom:1px solid #f4f4f5;text-align:right;">{frequency_label}</td>
+              </tr>
+              <tr>
+                <td style="padding:12px 16px;font-size:12px;color:#a1a1aa;">Next run</td>
+                <td style="padding:12px 16px;font-size:13px;color:#0A0A0A;font-weight:600;text-align:right;">{_format_when(next_run)}</td>
+              </tr>
+            </table>
+          </td></tr>
+          <tr><td style="padding:16px 32px 32px 32px;">
+            <a href="{link}" style="display:block;text-align:center;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:13px 0;border-radius:10px;font-size:14px;font-weight:600;">Manage Schedules &rarr;</a>
+          </td></tr>
+{_EMAIL_FOOTER}
+        </table>
+      </td></tr>
+    </table>
+    """
+
+
+def _build_schedule_reminder_email(schedule_name: str, next_run) -> str:
+    """Amber, clock-themed "heads up" card sent 15 minutes before a scheduled
+    campaign fires."""
+    link = f"{app_settings.FRONTEND_URL}/schedules"
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:32px 0;font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
+      <tr><td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;">
+          <tr><td style="background:#b45309;padding:24px 32px;">
+            <span style="color:#ffffff;font-size:18px;font-weight:700;">⏰ Automation Studio</span>
+          </td></tr>
+          <tr><td align="center" style="padding:20px 0 0 0;">
+            <img src="cid:mascot" width="90" height="75" alt="" style="display:block;border:0;">
+          </td></tr>
+          <tr><td style="padding:12px 32px 4px 32px;">
+            <span style="display:inline-block;padding:5px 12px;border-radius:999px;background:#fffbeb;color:#b45309;font-size:12px;font-weight:600;">⏳ Starting in 15 minutes</span>
+            <h1 style="margin:14px 0 4px 0;font-size:19px;color:#0A0A0A;">{schedule_name}</h1>
+            <p style="margin:0;color:#71717a;font-size:13px;">Scheduled to run at {_format_when(next_run)}.</p>
+          </td></tr>
+          <tr><td style="padding:20px 32px 8px 32px;">
+            <p style="margin:0;padding:14px 16px;background:#fffbeb;border-radius:10px;font-size:13px;color:#78350f;">This will send automatically - no action needed. Head to Schedules if you want to reschedule or cancel it first.</p>
+          </td></tr>
+          <tr><td style="padding:16px 32px 32px 32px;">
+            <a href="{link}" style="display:block;text-align:center;background:#0A0A0A;color:#ffffff;text-decoration:none;padding:13px 0;border-radius:10px;font-size:14px;font-weight:600;">View Schedule &rarr;</a>
+          </td></tr>
+{_EMAIL_FOOTER}
+        </table>
+      </td></tr>
+    </table>
+    """
+
+
 def _build_campaign_summary_email(campaign_name: str, execution, failed: list) -> str:
     """A branded, table-based (Outlook-safe) HTML card: status, how long the
     send took, sent/failed/total counts, the failed-branch table when there
@@ -214,7 +315,10 @@ def _build_campaign_summary_email(campaign_name: str, execution, failed: list) -
           <tr><td style="background:#0A0A0A;padding:24px 32px;">
             <span style="color:#ffffff;font-size:18px;font-weight:700;">⚡ Automation Studio</span>
           </td></tr>
-          <tr><td style="padding:28px 32px 4px 32px;">
+          <tr><td align="center" style="padding:20px 0 0 0;">
+            <img src="cid:mascot" width="90" height="75" alt="" style="display:block;border:0;">
+          </td></tr>
+          <tr><td style="padding:12px 32px 4px 32px;">
             <span style="display:inline-block;padding:5px 12px;border-radius:999px;background:{status_bg};color:{status_color};font-size:12px;font-weight:600;">{status_icon} {status_label}</span>
             <h1 style="margin:14px 0 4px 0;font-size:19px;color:#0A0A0A;">{campaign_name}</h1>
             <p style="margin:0;color:#71717a;font-size:13px;">Finished in {duration}</p>
@@ -243,10 +347,7 @@ def _build_campaign_summary_email(campaign_name: str, execution, failed: list) -
           <tr><td style="padding:16px 32px 32px 32px;">
             <a href="{link}" style="display:block;text-align:center;background:#0A0A0A;color:#ffffff;text-decoration:none;padding:13px 0;border-radius:10px;font-size:14px;font-weight:600;">View in Studio &rarr;</a>
           </td></tr>
-          <tr><td style="padding:0 32px 24px 32px;">
-            <p style="margin:0 0 6px 0;color:#71717a;font-size:12px;text-align:center;">Thank you for using Automation Studio! 🎉</p>
-            <p style="margin:0;color:#a1a1aa;font-size:11px;text-align:center;">You can turn this off in Settings.</p>
-          </td></tr>
+{_EMAIL_FOOTER}
         </table>
       </td></tr>
     </table>
@@ -287,14 +388,8 @@ def _notify_campaign_result(db: Session, user_id: int, execution, results, profi
 
     subject = f"✅ \"{campaign_name}\" completed" if not failed else f"⚠️ \"{campaign_name}\" completed with {len(failed)} failure(s)"
     body = _build_campaign_summary_email(campaign_name, execution, failed)
-    smtp_config = {
-        "smtp_server": profile.smtp_server,
-        "smtp_port": profile.smtp_port,
-        "sender_email": profile.sender_email,
-        "sender_name": profile.sender_name,
-        "password": profile.password,
-    }
-    send_email(smtp_config, [user.email], subject, body)
+    mascot = generate_bounce_gif((5, 150, 105), "happy") if not failed else generate_bounce_gif((220, 38, 38), "alert")
+    send_email(_smtp_config_from_profile(profile), [user.email], subject, body, inline_images=[("mascot", mascot)])
 
 
 def _send_branch_email(db: Session, request: CampaignExecuteRequest, profile, execution,
@@ -323,16 +418,8 @@ def _send_branch_email(db: Session, request: CampaignExecuteRequest, profile, ex
     body = _resolve_cell_placeholders(body, file_path, request.sheet_name)
     body = body.replace("\n", "<br>")
 
-    smtp_config = {
-        "smtp_server": profile.smtp_server,
-        "smtp_port": profile.smtp_port,
-        "sender_email": profile.sender_email,
-        "sender_name": profile.sender_name,
-        "password": profile.password,
-    }
-
     attachments = [file_path] if request.attach_file and os.path.exists(file_path) else []
-    result = send_email(smtp_config, to_list, subject, body, cc_list, attachments,
+    result = send_email(_smtp_config_from_profile(profile), to_list, subject, body, cc_list, attachments,
                         inline_images=inline_images)
 
     now = datetime.utcnow()

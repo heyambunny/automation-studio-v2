@@ -16,6 +16,7 @@ class Schedule(Base):
     cron_expression = Column(String(100))
     next_run = Column(DateTime)
     enabled = Column(Boolean, default=True)
+    last_reminder_sent_for = Column(DateTime, nullable=True)  # next_run value the 15-min-before email was last sent for
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

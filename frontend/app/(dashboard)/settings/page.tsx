@@ -424,7 +424,7 @@ export default function SettingsPage() {
                 className="w-4 h-4 mt-0.5 cursor-pointer"
               />
               <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                Email me a summary card every time a campaign finishes (sent/failed counts, duration, and a link back to Studio)
+                Email me about my campaigns - when one is scheduled, 15 minutes before it runs, and a summary card when it finishes
               </span>
             </label>
           </motion.div>

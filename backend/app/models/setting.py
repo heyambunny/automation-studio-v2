@@ -16,7 +16,7 @@ class Setting(Base):
     outlook_enabled = Column(Boolean, default=False)
     logo_path = Column(String(500))
     notify_on_failure = Column(Boolean, default=True)  # deprecated - superseded by notify_on_completion
-    notify_on_completion = Column(Boolean, default=True)  # email a summary card after every campaign finishes (success or failure)
+    notify_on_completion = Column(Boolean, default=True)  # email lifecycle updates for a campaign: scheduled, 15-min-before reminder, and the completion summary
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
