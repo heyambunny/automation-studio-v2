@@ -7,14 +7,14 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight, Check, Send, FileSpreadsheet, Mail, Settings, Copy, CheckCircle2, Eye, Paperclip, Loader2, CalendarClock, FileText } from "lucide-react";
+import { CellReferenceField, CELL_REF_RE, type CellLookupResult } from "@/components/campaigns/cell-reference-field";
 
 const steps = ["Send Method", "Mapping & Files", "Content", "Preview", "Action"];
-const variables = ["{{BranchName}}", "{{ReportType}}", "{{Summary}}", "{{Cell:B2}}", "{{SenderName}}"];
+const variables = ["{{BranchName}}", "{{ReportType}}", "{{Summary}}", "{{SenderName}}"];
 
 function SummaryTable({ previewData, previewBranch }: { previewData: any; previewBranch: string }) {
   return (
@@ -101,6 +101,7 @@ export default function NewCampaignPage() {
   const [readyBranches, setReadyBranches] = useState<string[]>([]);
   const [summaryHtml, setSummaryHtml] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [previewWorkbook, setPreviewWorkbook] = useState<any>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -265,6 +266,48 @@ export default function NewCampaignPage() {
     }
     return null;
   };
+
+  // Parses whichever branch is currently selected for preview (falling back to
+  // the first uploaded file) into a SheetJS workbook, so {{Cell:Sheet!Ref}}
+  // references can be resolved and shown live - both while typing (the "#"
+  // picker) and in the Preview step - without a backend round trip.
+  useEffect(() => {
+    const file = findBranchFile(previewBranch) || (files && files[0]) || null;
+    if (!file) { setPreviewWorkbook(null); return; }
+    let cancelled = false;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      if (cancelled) return;
+      try {
+        const XLSX = await import("xlsx");
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        if (!cancelled) setPreviewWorkbook(workbook);
+      } catch (err) {
+        if (!cancelled) setPreviewWorkbook(null);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    return () => { cancelled = true; };
+  }, [files, previewBranch]);
+
+  const getCellValue = (sheet: string, cellRef: string): CellLookupResult => {
+    if (!previewWorkbook) return { found: false, value: "" };
+    const names: string[] = previewWorkbook.SheetNames || [];
+    const match = names.find((n) => n.toLowerCase() === (sheet || "").trim().toLowerCase());
+    const ws = match ? previewWorkbook.Sheets[match] : undefined;
+    if (!ws) return { found: false, value: "" };
+    const cell = ws[cellRef.toUpperCase()];
+    if (!cell) return { found: true, value: "" };
+    return { found: true, value: String(cell.w ?? cell.v ?? "") };
+  };
+
+  const resolveCellPlaceholders = (text: string) =>
+    text.replace(CELL_REF_RE, (_match, sheetGroup, cellGroup) => {
+      const sheet = (sheetGroup || sheetName || "").trim();
+      const lookup = getCellValue(sheet, cellGroup);
+      return lookup.found ? lookup.value : "";
+    });
 
   // Render the {{Summary}} block exactly as recipients will see it
   useEffect(() => {
@@ -542,6 +585,9 @@ export default function NewCampaignPage() {
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-3">
+                  💡 Type <span className="font-mono">#</span> in the Subject or Body below to insert a live cell value (e.g. <span className="font-mono">#Summary!B3</span>) — its resolved value shows right under the field so you can check it without going to Preview.
+                </p>
               </div>
 
               {(bodyTemplates.length > 0 || subjectTemplates.length > 0) && (
@@ -590,8 +636,32 @@ export default function NewCampaignPage() {
                 </div>
 
                 <div className="space-y-1.5"><Label className="text-xs text-zinc-600 dark:text-zinc-400">Report Type</Label><Input value={reportType} className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white" onChange={(e) => setReportType(e.target.value)} placeholder="e.g. Performance Report" /></div>
-                <div className="space-y-1.5"><Label className="text-xs text-zinc-600 dark:text-zinc-400">Subject Template</Label><Input value={subject} className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white" onChange={(e) => setSubject(e.target.value)} placeholder="e.g. {{ReportType}} - {{BranchName}}" /></div>
-                <div className="space-y-1.5"><Label className="text-xs text-zinc-600 dark:text-zinc-400">Email Body</Label><Textarea value={bodyTemplate} className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white" onChange={(e) => setBodyTemplate(e.target.value)} rows={8} placeholder="Dear {{BranchName}} Team,..." /></div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-zinc-600 dark:text-zinc-400">Subject Template</Label>
+                  <CellReferenceField
+                    value={subject}
+                    onChange={setSubject}
+                    sheetNames={sheetNames}
+                    defaultSheetName={sheetName}
+                    getCellValue={getCellValue}
+                    className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white"
+                    placeholder="e.g. {{ReportType}} - {{BranchName}}"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-zinc-600 dark:text-zinc-400">Email Body</Label>
+                  <CellReferenceField
+                    value={bodyTemplate}
+                    onChange={setBodyTemplate}
+                    sheetNames={sheetNames}
+                    defaultSheetName={sheetName}
+                    getCellValue={getCellValue}
+                    multiline
+                    rows={8}
+                    className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white"
+                    placeholder="Dear {{BranchName}} Team,..."
+                  />
+                </div>
                 
                 <div className="space-y-1.5 max-w-xs">
                   <Label className="text-xs text-zinc-600 dark:text-zinc-400">Sheet Name</Label>
@@ -674,16 +744,18 @@ export default function NewCampaignPage() {
                     </div>
                     <div className="text-xs text-zinc-600 dark:text-zinc-300 space-y-1">
                       <p><span className="font-medium text-zinc-400 inline-block w-14">To:</span> Branch Recipients</p>
-                      <p><span className="font-medium text-zinc-400 inline-block w-14">Subject:</span> {subject.replace(/{{BranchName}}/g, previewBranch).replace(/{{ReportType}}/g, reportType || "Report") || "—"}</p>
+                      <p><span className="font-medium text-zinc-400 inline-block w-14">Subject:</span> {resolveCellPlaceholders(subject.replace(/{{BranchName}}/g, previewBranch).replace(/{{ReportType}}/g, reportType || "Report")) || "—"}</p>
                     </div>
                   </div>
 
                   <div className="px-5 py-6 text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
                     {(() => {
-                      const resolvedBody = (bodyTemplate || "—")
-                        .replace(/{{BranchName}}/g, previewBranch)
-                        .replace(/{{ReportType}}/g, reportType || "Report")
-                        .replace(/{{SenderName}}/g, senderName);
+                      const resolvedBody = resolveCellPlaceholders(
+                        (bodyTemplate || "—")
+                          .replace(/{{BranchName}}/g, previewBranch)
+                          .replace(/{{ReportType}}/g, reportType || "Report")
+                          .replace(/{{SenderName}}/g, senderName)
+                      );
                       
                       if (!bodyTemplate?.includes("{{Summary}}")) {
                         return <div className="whitespace-pre-wrap">{resolvedBody}</div>;

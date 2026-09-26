@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.core.security import decode_token
 from app.models import Execution, EmailLog, SMTPProfile, Mapping, MappingEntry, Notification, Setting, User
 import os
+import re
 import tempfile
 import smtplib
 from email.mime.text import MIMEText
@@ -20,9 +21,28 @@ import openpyxl
 from app.services.excel_service import (
     detect_active_range, render_excel_range_html, render_excel_range_image,
     _plain_table_html, prewarm_xlsb_conversions, prewarm_summary_images,
+    get_cell_value,
 )
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
+# {{Cell:B3}} resolves against the campaign's configured sheet; {{Cell:Sheet!B3}}
+# names its own sheet. Kept in sync with frontend/components/campaigns/cell-reference-field.tsx.
+_CELL_PLACEHOLDER_RE = re.compile(r"\{\{Cell:(?:([^!{}]+)!)?([A-Za-z]{1,3}[0-9]+)\}\}")
+
+
+def _resolve_cell_placeholders(text: str, file_path: str, default_sheet_name: str) -> str:
+    if "{{Cell:" not in text:
+        return text
+
+    def _replace(match: "re.Match") -> str:
+        if not file_path or not os.path.exists(file_path):
+            return ""
+        sheet = (match.group(1) or default_sheet_name or "Summary").strip()
+        cell_ref = match.group(2).upper()
+        return get_cell_value(file_path, sheet, cell_ref)
+
+    return _CELL_PLACEHOLDER_RE.sub(_replace, text)
 
 class CampaignExecuteRequest(BaseModel):
     smtp_profile: str
@@ -219,6 +239,8 @@ def _send_branch_email(db: Session, request: CampaignExecuteRequest, profile, ex
 
     subject = request.subject.replace("{{BranchName}}", branch).replace("{{ReportType}}", request.report_type)
     body = request.body_template.replace("{{BranchName}}", branch).replace("{{ReportType}}", request.report_type).replace("{{SenderName}}", profile.sender_name or "").replace("{{Summary}}", summary_html)
+    subject = _resolve_cell_placeholders(subject, file_path, request.sheet_name)
+    body = _resolve_cell_placeholders(body, file_path, request.sheet_name)
     body = body.replace("\n", "<br>")
 
     smtp_config = {

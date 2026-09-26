@@ -1019,6 +1019,28 @@ def _converted_xlsx(file_path: str):
     return None
 
 
+def get_cell_value(file_path: str, sheet_name: str, cell_ref: str) -> str:
+    """Return the Excel-formatted display value of a single cell, for the
+    {{Cell:Sheet!Ref}} campaign placeholder. Returns "" for any failure
+    (missing sheet, bad address, CSV input, unreadable file) so a bad
+    reference degrades to blank text rather than blocking the send."""
+    lower = file_path.lower()
+    if lower.endswith(".csv"):
+        return ""
+    work_path = file_path
+    if lower.endswith(".xlsb"):
+        work_path = _converted_xlsx(file_path)
+        if not work_path:
+            return ""
+    try:
+        wb = openpyxl.load_workbook(work_path, data_only=True, read_only=True)
+        ws = _resolve_sheet(wb, sheet_name)
+        cell = ws[cell_ref]
+        return _format_cell_value(cell)
+    except Exception:
+        return ""
+
+
 def render_excel_range_html(file_path: str, sheet_name: str, start_cell: str = ""):
     """Render the active range of ``sheet_name`` as an inline-styled HTML table
     that reproduces the source cell formatting (fills, fonts, borders,
