@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import decode_token, hash_password
 from app.core.audit import log_audit
-from app.models import User, UserRole
+from app.models import User, UserRole, Execution, EmailLog
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -43,6 +44,49 @@ def _serialize_user(u: User):
 def get_users(db: Session = Depends(get_db), auth: int = Depends(get_current_admin)):
     users = db.query(User).all()
     return [{"id": u.id, "email": u.email, "full_name": u.full_name, "role": u.role.value if u.role else "viewer", "avatar": u.avatar or "bear-brown"} for u in users]
+
+@router.get("/activity")
+def get_user_activity(db: Session = Depends(get_db), auth: int = Depends(get_current_admin)):
+    """Per-user behaviour for the admin activity view: last login, how many
+    campaigns they've run, and how many emails they've sent/failed across
+    all of them."""
+    sent_counts = dict(
+        db.query(Execution.user_id, func.count(EmailLog.id))
+        .join(EmailLog, EmailLog.execution_id == Execution.id)
+        .filter(EmailLog.status == "sent")
+        .group_by(Execution.user_id)
+        .all()
+    )
+    failed_counts = dict(
+        db.query(Execution.user_id, func.count(EmailLog.id))
+        .join(EmailLog, EmailLog.execution_id == Execution.id)
+        .filter(EmailLog.status == "failed")
+        .group_by(Execution.user_id)
+        .all()
+    )
+    campaign_counts = dict(
+        db.query(Execution.user_id, func.count(Execution.id))
+        .group_by(Execution.user_id)
+        .all()
+    )
+
+    users = db.query(User).all()
+    result = []
+    for u in users:
+        result.append({
+            "id": u.id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "role": u.role.value if u.role else "viewer",
+            "avatar": u.avatar or "bear-brown",
+            "last_login": u.last_login.isoformat() if u.last_login else None,
+            "campaigns_run": campaign_counts.get(u.id, 0),
+            "emails_sent": sent_counts.get(u.id, 0),
+            "emails_failed": failed_counts.get(u.id, 0),
+        })
+
+    result.sort(key=lambda r: r["last_login"] or "", reverse=True)
+    return result
 
 @router.post("/")
 def create_user(user_data: UserCreate, db: Session = Depends(get_db), auth: int = Depends(get_current_admin)):

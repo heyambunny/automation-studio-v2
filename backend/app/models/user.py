@@ -24,6 +24,7 @@ class User(Base):
     role = Column(SQLEnum(UserRole), default=UserRole.VIEWER)
     is_active = Column(String(1), default='Y')
     avatar = Column(String(50), default='bear-brown')
+    last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -94,6 +94,7 @@ export const api = {
   getUserBest: (game: string) => apiRequest<any>(`/games/user-best/${game}`),
   testSMTP: (data: any) => apiRequest<{ success: boolean; message?: string }>("/settings/test-smtp", { method: "POST", body: JSON.stringify(data) }),
   getUsers: () => apiRequest<any[]>("/users/"),
+  getUserActivity: () => apiRequest<any[]>("/users/activity"),
   createUser: (data: any) => apiRequest("/users/", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id: number, data: any) => apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteUser: (id: number) => apiRequest(`/users/${id}`, { method: "DELETE" }),
@@ -110,4 +111,43 @@ export const api = {
   getAnnouncementBanner: () => apiRequest<{ announcement: any; view_number?: number; view_limit?: number }>("/announcements/banner"),
   createAnnouncement: (data: any) => apiRequest<any>("/announcements/", { method: "POST", body: JSON.stringify(data) }),
   deleteAnnouncement: (id: number) => apiRequest(`/announcements/${id}`, { method: "DELETE" }),
+  analyzeSplitFile: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const response = await fetch(`${API_BASE_URL}/laboratory/analyze`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!response.ok) throw new ApiError(response.statusText, response.status);
+    return response.json() as Promise<{
+      sheet_names: string[] | null;
+      sheets_analyzed: number;
+      row_count: number;
+      columns: { name: string; unique_count: number; sample_values: string[]; recommended: boolean }[];
+    }>;
+  },
+  splitFile: async (file: File, columnName: string) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("column_name", columnName);
+    const token = getToken();
+    const response = await fetch(`${API_BASE_URL}/laboratory/split`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!response.ok) {
+      let message = response.statusText;
+      try {
+        const body = await response.json();
+        if (typeof body?.detail === "string") message = body.detail;
+      } catch {
+        // not JSON - stick with statusText
+      }
+      throw new ApiError(message, response.status);
+    }
+    return response.blob();
+  },
 };

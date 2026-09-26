@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -13,7 +14,10 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     
     if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
+
+    user.last_login = datetime.utcnow()
+    db.commit()
+
     access_token = create_access_token(user.id, user.role.value if user.role else "viewer")
     refresh_token = create_refresh_token(user.id)
     

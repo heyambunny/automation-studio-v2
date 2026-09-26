@@ -3,6 +3,8 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { AnnouncementBanner } from "@/components/layout/announcement-banner";
+import { LabJobProvider } from "@/components/lab/lab-job-context";
+import { LabJobIndicator } from "@/components/layout/lab-job-indicator";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getUser, clearAuth } from "@/lib/auth";
@@ -59,6 +61,7 @@ export default function DashboardLayout({
   const avatar = AVATARS[user.avatar || "bear-brown"] || AVATARS["bear-brown"];
 
   return (
+    <LabJobProvider>
     <div className="min-h-screen bg-white dark:bg-[#0A0A0A] transition-colors relative">
       {/* Dark mode glows */}
       <div className="dark:block hidden fixed top-20 right-10 w-96 h-96 glow-purple rounded-full blur-3xl pointer-events-none z-0" />
@@ -74,6 +77,7 @@ export default function DashboardLayout({
             >
               {dark ? <Sun className="w-4 h-4 text-zinc-500" /> : <Moon className="w-4 h-4 text-zinc-500" />}
             </button>
+            <LabJobIndicator />
             <NotificationBell />
             <button
               onClick={() => setProfileOpen(true)}
@@ -226,5 +230,6 @@ export default function DashboardLayout({
         </div>
       )}
     </div>
+    </LabJobProvider>
   );
 }
