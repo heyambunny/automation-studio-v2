@@ -123,7 +123,7 @@ export default function AnnouncementsPage() {
       {loading ? (
         <div className="space-y-3">
           {[1, 2].map((i) => (
-            <div key={i} className="h-24 bg-zinc-50 rounded-xl animate-pulse" />
+            <div key={i} className="h-24 bg-zinc-50 dark:bg-white/5 rounded-xl animate-pulse" />
           ))}
         </div>
       ) : announcements.length === 0 ? (

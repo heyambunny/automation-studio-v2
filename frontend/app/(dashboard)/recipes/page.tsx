@@ -74,7 +74,7 @@ export default function RecipesPage() {
 
       {loading ? (
         <div className="space-y-3">
-          {[1, 2].map((i) => <div key={i} className="h-14 bg-zinc-50 rounded-xl animate-pulse" />)}
+          {[1, 2].map((i) => <div key={i} className="h-14 bg-zinc-50 dark:bg-white/5 rounded-xl animate-pulse" />)}
         </div>
       ) : filteredRecipes.length === 0 ? (
         <Card className="border-zinc-100 shadow-none dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10">
@@ -94,8 +94,8 @@ export default function RecipesPage() {
               className="group flex items-center justify-between bg-white border border-zinc-200 rounded-xl px-5 py-4 hover:border-zinc-300 hover:shadow-sm transition-all dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10 dark:hover:border-white/20 dark:shadow-none"
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-zinc-50 rounded-lg flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-zinc-500" />
+                <div className="w-10 h-10 bg-zinc-50 dark:bg-white/10 rounded-lg flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-zinc-500 dark:text-zinc-300" />
                 </div>
                 <div>
                   <p className="font-medium text-sm dark:text-white">{r.saved_name}</p>

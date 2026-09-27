@@ -8,16 +8,18 @@ const ThemeContext = createContext<{ dark: boolean; toggle: () => void }>({
 });
 
 export function ThemeContextProvider({ children }: { children: React.ReactNode }) {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("dark_mode");
-    if (stored) {
-      setDark(stored === "true");
-    } else {
-      setDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+  // Lazy-init from the DOM, not a hardcoded default: the inline script in
+  // layout.tsx already applied the correct "dark" class to <html> before
+  // this component ever mounts (to avoid a flash of the wrong theme on
+  // first paint). Starting this state at `false` and correcting it in an
+  // effect meant this provider would briefly re-remove that class on every
+  // load before flipping it back, causing a real flash.
+  const [dark, setDark] = useState(() => {
+    if (typeof document !== "undefined") {
+      return document.documentElement.classList.contains("dark");
     }
-  }, []);
+    return false;
+  });
 
   useEffect(() => {
     if (dark) {

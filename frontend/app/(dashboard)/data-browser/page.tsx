@@ -142,7 +142,7 @@ export default function DataBrowserPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-100">
+                        <tr className="bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/10">
                           {Object.keys(tableData[0]).map((key) => (
                             <th key={key} className="text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 px-4 py-3 whitespace-nowrap">{key}</th>
                           ))}
@@ -150,7 +150,7 @@ export default function DataBrowserPage() {
                       </thead>
                       <tbody>
                         {paginatedData.map((row: any, idx: number) => (
-                          <tr key={idx} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/50 transition-colors">
+                          <tr key={idx} className="border-b border-zinc-50 dark:border-white/5 last:border-0 hover:bg-zinc-50/50 dark:hover:bg-white/5 transition-colors">
                             {Object.values(row).map((value: any, i: number) => (
                               <td key={i} className="text-xs text-zinc-700 dark:text-zinc-300 px-4 py-2.5 whitespace-nowrap">
                                 {typeof value === "object" ? JSON.stringify(value) : String(value ?? "—")}
@@ -164,7 +164,7 @@ export default function DataBrowserPage() {
 
                   {/* Pagination */}
                   {totalPages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-100">
+                    <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-100 dark:border-white/10">
                       <p className="text-xs text-zinc-500">
                         Showing {((currentPage - 1) * ROWS_PER_PAGE) + 1}–{Math.min(currentPage * ROWS_PER_PAGE, tableData.length)} of {tableData.length}
                       </p>

@@ -74,7 +74,7 @@ export default function UserActivityPage() {
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 bg-zinc-50 rounded-xl animate-pulse" />
+            <div key={i} className="h-14 bg-zinc-50 dark:bg-white/5 rounded-xl animate-pulse" />
           ))}
         </div>
       ) : rows.length === 0 ? (

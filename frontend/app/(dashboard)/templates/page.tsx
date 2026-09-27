@@ -128,7 +128,7 @@ export default function TemplatesPage() {
       {loading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-14 bg-zinc-50 rounded-lg animate-pulse" />
+            <div key={i} className="h-14 bg-zinc-50 dark:bg-white/5 rounded-lg animate-pulse" />
           ))}
         </div>
       ) : filteredTemplates.length === 0 ? (

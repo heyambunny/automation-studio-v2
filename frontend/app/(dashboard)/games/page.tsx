@@ -2,17 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Gamepad2, Grid3x3, MousePointerClick, Timer, Brain, Hash, Dice5 } from "lucide-react";
+import { Gamepad2, Bird, Blocks, Zap, Rocket, Hammer, Timer, Layers, Sword } from "lucide-react";
 
 const games = [
-  { id: "tictactoe", name: "Tic Tac Toe", description: "Classic X & O game", icon: Grid3x3, color: "bg-blue-50 text-blue-600", players: "2 Players" },
-  { id: "snake", name: "Snake", description: "Eat food, grow longer", icon: MousePointerClick, color: "bg-emerald-50 text-emerald-600", players: "1 Player" },
-  { id: "memory", name: "Memory Game", description: "Match animal pairs", icon: Brain, color: "bg-purple-50 text-purple-600", players: "1 Player" },
-  { id: "reaction", name: "Reaction Time", description: "Test your reflexes", icon: Timer, color: "bg-orange-50 text-orange-600", players: "1 Player" },
-  { id: "rps", name: "Rock Paper Scissors", description: "Beat the bot", icon: Dice5, color: "bg-pink-50 text-pink-600", players: "vs Bot" },
-  { id: "simon", name: "Simon Says", description: "Remember the pattern", icon: Brain, color: "bg-amber-50 text-amber-600", players: "1 Player" },
-  { id: "2048", name: "2048", description: "Merge numbers to win", icon: Hash, color: "bg-red-50 text-red-600", players: "1 Player" },
-  { id: "sudoku", name: "Sudoku", description: "Fill the grid", icon: Grid3x3, color: "bg-cyan-50 text-cyan-600", players: "1 Player" },
+  { id: "flappy", name: "Flappy Bird", description: "Tap to fly through the gaps", icon: Bird, color: "bg-sky-50 text-sky-600", players: "1 Player" },
+  { id: "breakout", name: "Breakout", description: "Smash every brick", icon: Blocks, color: "bg-orange-50 text-orange-600", players: "1 Player" },
+  { id: "snake", name: "Snake", description: "Eat food, grow longer", icon: Zap, color: "bg-emerald-50 text-emerald-600", players: "1 Player" },
+  { id: "invaders", name: "Space Invaders", description: "Blast the alien fleet", icon: Rocket, color: "bg-purple-50 text-purple-600", players: "1 Player" },
+  { id: "whackamole", name: "Whack-a-Mole", description: "Whack 'em before they hide", icon: Hammer, color: "bg-amber-50 text-amber-600", players: "1 Player" },
+  { id: "reaction", name: "Reaction Time", description: "Test your reflexes", icon: Timer, color: "bg-red-50 text-red-600", players: "1 Player" },
+  { id: "stacker", name: "Stack Tower", description: "Stack blocks as high as you can", icon: Layers, color: "bg-cyan-50 text-cyan-600", players: "1 Player" },
+  { id: "fruitslice", name: "Fruit Slice", description: "Slice fruit, dodge bombs", icon: Sword, color: "bg-pink-50 text-pink-600", players: "1 Player" },
 ];
 
 export default function GamesPage() {

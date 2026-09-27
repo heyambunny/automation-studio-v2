@@ -475,10 +475,10 @@ export default function SettingsPage() {
               onClick={() => setUserDialogOpen(true)}
               className="border-2 border-dashed border-zinc-300 dark:border-white/20 rounded-2xl p-6 hover:border-zinc-400 dark:hover:border-white/40 hover:bg-zinc-50 dark:hover:bg-white/5 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[200px]"
             >
-              <div className="w-12 h-12 bg-zinc-100 rounded-full flex items-center justify-center mb-3">
-                <UserPlus className="w-5 h-5 text-zinc-400" />
+              <div className="w-12 h-12 bg-zinc-100 dark:bg-white/10 rounded-full flex items-center justify-center mb-3">
+                <UserPlus className="w-5 h-5 text-zinc-400 dark:text-zinc-300" />
               </div>
-              <p className="text-sm font-medium text-zinc-500">Add User</p>
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Add User</p>
             </motion.button>
           </div>
         </>
@@ -547,7 +547,7 @@ export default function SettingsPage() {
           </div>
 
           {profiles.length === 0 ? (
-            <Card className="border-zinc-100 shadow-none">
+            <Card className="border-zinc-100 shadow-none dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10">
               <CardContent className="p-12 text-center">
                 <Mail className="w-12 h-12 mx-auto text-zinc-300 mb-4" />
                 <p className="text-zinc-500 font-medium">No SMTP profiles yet</p>
@@ -558,8 +558,8 @@ export default function SettingsPage() {
               {profiles.map((p: any) => (
                 <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="group flex items-center justify-between bg-white border border-zinc-200 rounded-xl px-5 py-4 hover:border-zinc-300 hover:shadow-sm transition-all dark:bg-white/5 dark:backdrop-blur-xl dark:border-white/10 dark:hover:border-white/20 dark:shadow-none">
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-zinc-50 rounded-lg flex items-center justify-center">
-                      <Server className="w-5 h-5 text-zinc-500" />
+                    <div className="w-10 h-10 bg-zinc-50 dark:bg-white/10 rounded-lg flex items-center justify-center">
+                      <Server className="w-5 h-5 text-zinc-500 dark:text-zinc-300" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
