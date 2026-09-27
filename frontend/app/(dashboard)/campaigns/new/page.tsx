@@ -448,7 +448,7 @@ export default function NewCampaignPage() {
         formData.append("files", files[i]);
       }
     }
-    const token = localStorage.getItem("access_token");
+    const token = sessionStorage.getItem("access_token");
     const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"}/campaigns/upload-files`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },

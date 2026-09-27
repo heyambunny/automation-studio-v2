@@ -34,6 +34,15 @@ export default function RootLayout({
                   document.documentElement.classList.add("dark");
                 }
               } catch (e) {}
+              try {
+                // One-time cleanup: auth used to live in localStorage (persisted
+                // indefinitely); it now lives in sessionStorage (cleared when the
+                // browser closes). Purge any leftover localStorage copy so an old
+                // token can never be read from anywhere again.
+                localStorage.removeItem("access_token");
+                localStorage.removeItem("refresh_token");
+                localStorage.removeItem("user");
+              } catch (e) {}
             `,
           }}
         />

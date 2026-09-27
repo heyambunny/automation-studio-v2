@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { api } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import { LayoutDashboard, Settings, FileSpreadsheet, PlusCircle, History, FileText, Clock, Database, FolderOpen, Gamepad2, Megaphone, ShieldAlert, FlaskConical, Activity } from "lucide-react";
 
 const AVATARS: Record<string, { bg: string; emoji: string }> = {
@@ -40,7 +41,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const user = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}") : {};
+  const user = (typeof window !== "undefined" ? getUser() : null) || {};
   const isAdmin = user.role === "admin";
   const [effective, setEffective] = useState<Record<string, boolean>>({});
   const theme = useTheme();
@@ -90,7 +91,7 @@ export function Sidebar() {
       {/* User */}
       <div className="px-4 py-4 border-t border-zinc-100 dark:border-zinc-800">
         {(() => {
-          const userData = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}") : {};
+          const userData = (typeof window !== "undefined" ? getUser() : null) || {};
           const avatar = AVATARS[userData.avatar || "bear-brown"] || AVATARS["bear-brown"];
           return (
             <div className="flex items-center gap-2.5">

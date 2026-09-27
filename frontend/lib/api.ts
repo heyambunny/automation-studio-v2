@@ -1,3 +1,5 @@
+import { clearAuth } from "./auth";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 export class ApiError extends Error {
@@ -10,7 +12,7 @@ export class ApiError extends Error {
 
 function getToken() {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
+  return sessionStorage.getItem("access_token");
 }
 
 export async function apiRequest<T>(
@@ -23,9 +25,19 @@ export async function apiRequest<T>(
     ...(options.headers as Record<string, string> | undefined),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  
+
   const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
   if (!response.ok) {
+    // An expired/invalid token on any authenticated call ends the session
+    // immediately, wherever the user is - not just on the next full page
+    // load. /auth/login itself returning 401 means bad credentials, not an
+    // expired session, so that case is left for the login form to show.
+    if (response.status === 401 && endpoint !== "/auth/login" && typeof window !== "undefined") {
+      clearAuth();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
     let message = response.statusText;
     try {
       const body = await response.json();

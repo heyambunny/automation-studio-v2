@@ -42,7 +42,7 @@ export default function DataBrowserPage() {
 
   const loadTables = async () => {
     try {
-      const token = localStorage.getItem("access_token");
+      const token = sessionStorage.getItem("access_token");
       const response = await fetch(`${API_BASE_URL}/data-browser/tables`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -59,7 +59,7 @@ export default function DataBrowserPage() {
     setLoading(true);
     setSelectedTable(tableName);
     try {
-      const token = localStorage.getItem("access_token");
+      const token = sessionStorage.getItem("access_token");
       const response = await fetch(`${API_BASE_URL}/data-browser/table/${tableName}`, {
         headers: { Authorization: `Bearer ${token}` },
       });

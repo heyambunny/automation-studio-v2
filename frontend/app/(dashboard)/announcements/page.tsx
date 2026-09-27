@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,8 +36,8 @@ export default function AnnouncementsPage() {
   };
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    setIsAdmin(user.role === "admin");
+    const user = getUser();
+    setIsAdmin(user?.role === "admin");
     load();
   }, []);
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,7 +89,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadData();
-    const userData = JSON.parse(localStorage.getItem("user") || "{}");
+    const userData = getUser() || {};
     setUser(userData);
     if (userData.role !== "admin") setActiveTab("profile");
   }, []);
@@ -336,7 +337,7 @@ export default function SettingsPage() {
       const updated = await api.updateMyProfile({ full_name: myName, avatar: myAvatar });
       const merged = { ...user, ...updated };
       setUser(merged);
-      localStorage.setItem("user", JSON.stringify(merged));
+      sessionStorage.setItem("user", JSON.stringify(merged));
       window.dispatchEvent(new Event("user-updated"));
       setMyProfileOpen(false);
       showToast("Profile updated", "success");
