@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { FlaskConical, Split, ArrowRight } from "lucide-react";
+import { FlaskConical, Split, ChefHat, ArrowRight } from "lucide-react";
 
 const TOOLS = [
   {
@@ -10,6 +10,12 @@ const TOOLS = [
     icon: Split,
     title: "Data Split",
     description: "Upload one master report and split it into a separate file per branch (or any other column you choose) - no manual copy-pasting.",
+  },
+  {
+    href: "/laboratory/kitchen",
+    icon: ChefHat,
+    title: "Kitchen",
+    description: "Show it one or two finished branch reports and it learns the formula recipe, then bakes the same Summary sheet for every other branch automatically.",
   },
 ];
 

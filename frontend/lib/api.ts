@@ -176,4 +176,70 @@ export const api = {
     }
     return response.blob();
   },
+  trainKitchenRecipe: async (exampleFiles: File[], summarySheet: string, rawSheet: string) => {
+    const fd = new FormData();
+    exampleFiles.forEach((f) => fd.append("example_files", f));
+    fd.append("summary_sheet", summarySheet);
+    fd.append("raw_sheet", rawSheet);
+    const token = getToken();
+    const response = await fetch(`${API_BASE_URL}/laboratory/kitchen/train`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!response.ok) {
+      let message = response.statusText;
+      try {
+        const body = await response.json();
+        if (typeof body?.detail === "string") message = body.detail;
+      } catch {
+        // not JSON - stick with statusText
+      }
+      throw new ApiError(message, response.status);
+    }
+    return response.json() as Promise<{
+      training_id: string;
+      recipe: any;
+      rules: { coord: string; kind: string; description: string; resolved: boolean; rule: any }[];
+    }>;
+  },
+  generateKitchenReport: async (
+    masterFile: File,
+    columnName: string,
+    recipe: any,
+    overrides: any,
+    outputMode: "download" | "campaign_folder"
+  ) => {
+    const fd = new FormData();
+    fd.append("master_file", masterFile);
+    fd.append("column_name", columnName);
+    fd.append("recipe", JSON.stringify(recipe));
+    fd.append("overrides", JSON.stringify(overrides));
+    fd.append("output_mode", outputMode);
+    const token = getToken();
+    const response = await fetch(`${API_BASE_URL}/laboratory/kitchen/generate`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!response.ok) {
+      let message = response.statusText;
+      try {
+        const body = await response.json();
+        if (typeof body?.detail === "string") message = body.detail;
+      } catch {
+        // not JSON - stick with statusText
+      }
+      throw new ApiError(message, response.status);
+    }
+    if (outputMode === "campaign_folder") {
+      const data = await response.json() as { campaign_folder: string; campaign_folder_id: string; branches: string[]; warnings: Record<string, string[]> };
+      return { type: "json" as const, data };
+    }
+    return { type: "blob" as const, data: await response.blob() };
+  },
+  saveKitchenRecipe: (data: { saved_name: string; config: any }) =>
+    apiRequest<{ filename: string; saved_name: string }>("/laboratory/kitchen/recipes", { method: "POST", body: JSON.stringify(data) }),
+  getKitchenRecipes: () => apiRequest<any[]>("/laboratory/kitchen/recipes"),
+  deleteKitchenRecipe: (filename: string) => apiRequest(`/laboratory/kitchen/recipes/${encodeURIComponent(filename)}`, { method: "DELETE" }),
 };

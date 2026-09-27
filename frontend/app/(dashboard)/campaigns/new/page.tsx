@@ -110,6 +110,11 @@ export default function NewCampaignPage() {
     checked: number;
     total: number;
   }>({ status: "idle", issues: [], checked: 0, total: 0 });
+  // Set when arriving from Laboratory > Kitchen with files it already
+  // generated server-side - skips the manual upload step entirely, but also
+  // means there's no local File object for the SheetJS-based preview/cell
+  // validation below (those need real bytes in the browser).
+  const [preloadedFolder, setPreloadedFolder] = useState<{ campaign_folder: string; branches: string[] } | null>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -151,6 +156,11 @@ export default function NewCampaignPage() {
       }
 
       setRecipeLoaded(true);
+    } else if (sessionStorage.getItem("kitchen_campaign_folder")) {
+      const data = JSON.parse(sessionStorage.getItem("kitchen_campaign_folder") as string);
+      sessionStorage.removeItem("kitchen_campaign_folder");
+      setPreloadedFolder({ campaign_folder: data.campaign_folder, branches: data.branches || [] });
+      setCurrentStep(1);
     } else {
       // Check for saved form data from previous navigation
       const savedForm = sessionStorage.getItem("campaign_form_data");
@@ -194,6 +204,7 @@ export default function NewCampaignPage() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     setFiles(fileList);
+    setPreloadedFolder(null); // a manual upload always overrides a Kitchen handoff
     if (fileList && fileList.length > 0) {
       const file = fileList[0];
       if (file.name.endsWith(".xlsx") || file.name.endsWith(".xlsb")) {
@@ -215,13 +226,18 @@ export default function NewCampaignPage() {
   };
 
   useEffect(() => {
-    // Get mapped branches and files matching
-    if (selectedMapping && mappings.length > 0 && files && files.length > 0) {
+    // Get mapped branches and files matching - either a local upload, or a
+    // set of branch names Kitchen already generated server-side.
+    const sourceFileNames = preloadedFolder
+      ? preloadedFolder.branches
+      : files ? Array.from(files).map(f => f.name.replace(/\.(xlsx|xls|xlsb|csv)$/i, "")) : null;
+
+    if (selectedMapping && mappings.length > 0 && sourceFileNames && sourceFileNames.length > 0) {
       const mapping = mappings.find(m => m.mapping_name === selectedMapping);
       // Fetch mapping entries
       api.getMappingEntries(mapping?.id).then((entries: any[]) => {
         const mappedNames = entries.map(e => e.branch_name);
-        const fileNames = Array.from(files).map(f => f.name.replace(/\.(xlsx|xls|xlsb|csv)$/i, ""));
+        const fileNames = sourceFileNames;
 
         // Only branches that are BOTH in mapping AND have a file
         const ready = mappedNames.filter(name =>
@@ -251,7 +267,7 @@ export default function NewCampaignPage() {
       setMissingFiles([]);
       setExtraFiles([]);
     }
-  }, [selectedMapping, files, mappings]);
+  }, [selectedMapping, files, mappings, preloadedFolder]);
 
   const loadPreviewData = async () => {
     if (!files || files.length === 0) return;
@@ -442,6 +458,7 @@ export default function NewCampaignPage() {
   // Shared by Send Now and Schedule - both need the files on disk before the
   // campaign (immediate or scheduled) can find them.
   const uploadCampaignFiles = async (): Promise<string> => {
+    if (preloadedFolder) return preloadedFolder.campaign_folder;
     const formData = new FormData();
     if (files) {
       for (let i = 0; i < files.length; i++) {
@@ -640,13 +657,26 @@ export default function NewCampaignPage() {
                     </div>
                   </div>
                 )}
-                <div className="space-y-2">
-                  <Label className="text-xs text-zinc-600 dark:text-zinc-400">Branch Files</Label>
-                  <Input type="file" multiple accept=".xlsx,.xls,.xlsb,.csv" onChange={handleFileUpload} className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white" />
-                  {files && <p className="text-xs text-emerald-600">{files.length} files selected</p>}
-                </div>
+                {preloadedFolder && (
+                  <div className="flex items-center justify-between rounded-xl border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3">
+                    <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                      🧑‍🍳 {preloadedFolder.branches.length} file{preloadedFolder.branches.length === 1 ? "" : "s"} ready from Kitchen ({preloadedFolder.branches.join(", ")})
+                    </p>
+                    <button onClick={() => setPreloadedFolder(null)} className="text-xs text-emerald-700 dark:text-emerald-400 underline cursor-pointer">
+                      Upload different files
+                    </button>
+                  </div>
+                )}
 
-                {selectedMapping && files && files.length > 0 && (
+                {!preloadedFolder && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-zinc-600 dark:text-zinc-400">Branch Files</Label>
+                    <Input type="file" multiple accept=".xlsx,.xls,.xlsb,.csv" onChange={handleFileUpload} className="dark:bg-[#0A0A0A] dark:border-white/20 dark:text-white" />
+                    {files && <p className="text-xs text-emerald-600">{files.length} files selected</p>}
+                  </div>
+                )}
+
+                {selectedMapping && (files && files.length > 0 || preloadedFolder) && (
                   <div className="rounded-xl border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-white/5 p-4 space-y-2">
                     <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
                       ✅ {readyBranches.length} of {mappedBranches.length} mapped branch{mappedBranches.length === 1 ? "" : "es"} will get an email
@@ -812,7 +842,14 @@ export default function NewCampaignPage() {
                   {readyBranches.length} branches ready to send · {mappedBranches.length} in mapping
                 </p>
                 
-                {readyBranches.length > 0 && (
+                {preloadedFolder && (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-white/5 border border-zinc-200 dark:border-white/10 rounded-lg px-4 py-3">
+                    🧑‍🍳 These files came from Laboratory &gt; Kitchen. A live preview isn't available for
+                    server-generated files, but they're ready to send as-is.
+                  </p>
+                )}
+
+                {!preloadedFolder && readyBranches.length > 0 && (
                   <div className="mb-4">
                     <Label className="text-xs text-zinc-600 dark:text-zinc-400 mb-2 block">Select branch to preview</Label>
                     <select 
@@ -827,11 +864,11 @@ export default function NewCampaignPage() {
                   </div>
                 )}
                 
-                {readyBranches.length === 0 && (
+                {!preloadedFolder && readyBranches.length === 0 && (
                   <p className="text-amber-600 text-sm mb-4">⚠️ No branches ready — check your mapping and uploaded files</p>
                 )}
 
-                {cellValidation.total > 0 && (
+                {!preloadedFolder && cellValidation.total > 0 && (
                   <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
                     cellValidation.status === "checking"
                       ? "bg-zinc-50 border-zinc-200 text-zinc-500 dark:bg-white/5 dark:border-white/10 dark:text-zinc-400"
@@ -861,6 +898,7 @@ export default function NewCampaignPage() {
                   </div>
                 )}
 
+                {!preloadedFolder && (
                 <div className="max-w-xl mx-auto border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden">
                   <div className="bg-zinc-50 dark:bg-[#0A0A0A] px-5 py-4 border-b border-zinc-200 dark:border-white/10">
                     <div className="flex items-center gap-2 mb-3">
@@ -918,6 +956,7 @@ export default function NewCampaignPage() {
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">{attachFile && files ? `${files.length} files attached` : "No attachments"}</span>
                   </div>
                 </div>
+                )}
               </CardContent>
             </Card>
           </div>
