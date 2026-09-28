@@ -113,7 +113,7 @@ def resolve_summary(file_path, sheet_name, start_cell="", summary_format="table"
 
 
 def send_email(smtp_config, to_list, subject, html_body, cc_list=None, attachments=None,
-               inline_images=None):
+               inline_images=None, copy_sender=True):
     try:
         msg = MIMEMultipart("mixed")
         msg["From"] = f"{smtp_config.get('sender_name', '')} <{smtp_config['sender_email']}>"
@@ -153,7 +153,7 @@ def send_email(smtp_config, to_list, subject, html_body, cc_list=None, attachmen
         all_recipients = list(to_list)
         if cc_list:
             all_recipients.extend(cc_list)
-        if smtp_config.get("sender_email"):
+        if copy_sender and smtp_config.get("sender_email"):
             all_recipients.append(smtp_config["sender_email"])
         
         server.sendmail(smtp_config["sender_email"], all_recipients, msg.as_string())

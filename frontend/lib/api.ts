@@ -57,6 +57,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  forgotPassword: (email: string) =>
+    apiRequest<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
+  checkResetToken: (token: string) =>
+    apiRequest<{ valid: boolean }>("/auth/reset-password/check", { method: "POST", body: JSON.stringify({ token }) }),
+  resetPassword: (token: string, new_password: string) =>
+    apiRequest<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) }),
   getSMTPProfiles: () => apiRequest<any[]>("/settings/smtp-profiles"),
   createSMTPProfile: (data: any) =>
     apiRequest("/settings/smtp-profiles", { method: "POST", body: JSON.stringify(data) }),

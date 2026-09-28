@@ -148,7 +148,8 @@ def delete_user(user_id: int, db: Session = Depends(get_db), auth: int = Depends
     deleted_email = user.email
 
     # Delete related records
-    from app.models import Setting, SMTPProfile, Mapping, Template, Execution, Schedule, GameScore
+    from app.models import Setting, SMTPProfile, Mapping, Template, Execution, Schedule, GameScore, PasswordResetToken
+    db.query(PasswordResetToken).filter_by(user_id=user_id).delete()
     db.query(Setting).filter_by(user_id=user_id).delete()
     db.query(SMTPProfile).filter_by(user_id=user_id).delete()
     db.query(Mapping).filter_by(user_id=user_id).delete()

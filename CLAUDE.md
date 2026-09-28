@@ -63,6 +63,12 @@ ssh root@216.48.191.101 "systemctl restart automation-studio-frontend"
 curl -s -o /dev/null -w "%{http_code}\n" https://reporting.evolvebrands.tech
 ```
 
+Production `backend/.env` sets `FRONTEND_URL=https://reporting.evolvebrands.tech`
+(links in every outgoing email) and `PASSWORD_RESET_SMTP_PROFILE_ID` (the
+`smtp_profiles.id` whose mailbox sends forgot-password emails - currently 1,
+himanshub@evolvebrands.com). To change the reset sender, edit that ID and
+restart the backend. Unset, forgot-password returns 503.
+
 This app has no migration tool - a schema change means writing a one-off
 `backend/scripts/migrate_*.py` (see existing ones for the pattern) and running
 it by hand, locally and again on the server, before restarting the backend.

@@ -8,6 +8,7 @@ from app.models.schedule import Schedule
 from app.models.audit_log import AuditLog
 from app.models.notification import Notification
 from app.models.announcement import Announcement, AnnouncementView
+from app.models.password_reset import PasswordResetToken
 
 from app.models.game_score import GameScore
 from app.models.feature_access import FeatureAccess

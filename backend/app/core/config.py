@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://harishmotwani@localhost:5432/automation_studio"
@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 1
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
     FRONTEND_URL: str = "http://localhost:3000"  # base URL used to build links in outgoing emails
-    
+    PASSWORD_RESET_SMTP_PROFILE_ID: Optional[int] = None  # SMTP profile that sends forgot-password emails
+    PASSWORD_RESET_TOKEN_MINUTES: int = 30
+
     class Config:
         env_file = ".env"
 
