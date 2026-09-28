@@ -20,7 +20,7 @@ def get_current_user(authorization: str = Header(...)):
     return int(payload.get("sub")), payload.get("role", "viewer")
 
 @router.post("/upload-files")
-async def upload_files(files: List[UploadFile] = File(...), auth: tuple = Depends(get_current_user)):
+def upload_files(files: List[UploadFile] = File(...), auth: tuple = Depends(get_current_user)):
     user_id, role = auth
     campaign_folder_id = str(uuid.uuid4())[:8]
     upload_dir = os.path.join("uploads", "campaigns", campaign_folder_id)
@@ -29,7 +29,7 @@ async def upload_files(files: List[UploadFile] = File(...), auth: tuple = Depend
     for file in files:
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as f:
-            f.write(await file.read())
+            f.write(file.file.read())
     
     return {"campaign_folder": upload_dir, "campaign_folder_id": campaign_folder_id, "files_uploaded": len(files)}
 

@@ -529,7 +529,7 @@ def execute_campaign(request: CampaignExecuteRequest, db: Session = Depends(get_
 
 
 @router.post("/preview-summary")
-async def preview_summary(
+def preview_summary(
     file: UploadFile = File(...),
     sheet_name: str = Form("Summary"),
     summary_format: str = Form("table"),
@@ -541,7 +541,7 @@ async def preview_summary(
     print(f"DEBUG: preview-summary sheet={sheet_name!r} format={summary_format!r} file={file.filename!r}")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
-        tmp.write(await file.read())
+        tmp.write(file.file.read())
         tmp.close()
         if summary_format == "image":
             try:

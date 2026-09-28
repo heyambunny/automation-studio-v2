@@ -152,7 +152,16 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: fd,
     });
-    if (!response.ok) throw new ApiError(response.statusText, response.status);
+    if (!response.ok) {
+      let message = response.statusText;
+      try {
+        const body = await response.json();
+        if (typeof body?.detail === "string") message = body.detail;
+      } catch {
+        // not JSON - stick with statusText
+      }
+      throw new ApiError(message, response.status);
+    }
     return response.json() as Promise<{
       sheet_names: string[] | null;
       sheets_analyzed: number;

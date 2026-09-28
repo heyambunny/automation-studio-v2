@@ -5,11 +5,12 @@ import json
 import uuid
 import zipfile
 import tempfile
+import threading
 from copy import copy
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
 import openpyxl
 import pandas as pd
@@ -23,6 +24,25 @@ KITCHEN_UPLOADS_DIR = os.path.join("uploads", "kitchen")
 KITCHEN_RECIPES_DIR = os.path.join("recipes", "kitchen")
 
 MAX_RECOMMENDED_GROUPS = 300
+
+# One workbook job at a time: each holds a whole master file plus a copy per
+# branch in memory (~2 GB peak seen), and the server has no swap. A queued job
+# waits briefly, then gets a clear "busy" error instead of hitting nginx's 300s
+# proxy timeout behind a long split.
+_heavy_job_slot = threading.Semaphore(1)
+_HEAVY_JOB_WAIT_SECONDS = 90
+
+
+def _one_heavy_job_at_a_time():
+    if not _heavy_job_slot.acquire(timeout=_HEAVY_JOB_WAIT_SECONDS):
+        raise HTTPException(
+            status_code=503,
+            detail="Another large file is being processed right now - please try again in a minute or two.",
+        )
+    try:
+        yield
+    finally:
+        _heavy_job_slot.release()
 
 
 def get_current_user(authorization: str = Header(...)):
@@ -100,9 +120,10 @@ def _copy_cell_style(src, dest):
 
 
 @router.post("/analyze")
-async def analyze_file(
+def analyze_file(
     file: UploadFile = File(...),
     auth: tuple = Depends(get_current_user),
+    _slot: None = Depends(_one_heavy_job_at_a_time),
 ):
     """Read every sheet of an uploaded master file and report only the
     columns that exist in ALL of them - those are the only ones that can
@@ -240,10 +261,11 @@ def build_branch_workbooks(wb, sheet_names: list, column_name: str) -> dict:
 
 
 @router.post("/split")
-async def split_file(
+def split_file(
     file: UploadFile = File(...),
     column_name: str = Form(...),
     auth: tuple = Depends(get_current_user),
+    _slot: None = Depends(_one_heavy_job_at_a_time),
 ):
     """Split every sheet of the uploaded file by column_name at once: each
     output file gets one branch's rows from every original sheet, so a
@@ -276,9 +298,8 @@ async def split_file(
                     out_wb.save(file_bytes)
                     zf.writestr(f"{_sanitize_filename(group_value)}.xlsx", file_bytes.getvalue())
 
-        zip_buffer.seek(0)
-        return StreamingResponse(
-            zip_buffer,
+        return Response(
+            content=zip_buffer.getvalue(),
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=split_files.zip"},
         )
@@ -292,11 +313,12 @@ async def split_file(
 # --- Kitchen: learn a formula recipe from example reports, apply it to every branch ---
 
 @router.post("/kitchen/train")
-async def kitchen_train(
+def kitchen_train(
     example_files: List[UploadFile] = File(...),
     summary_sheet: str = Form("Summary"),
     raw_sheet: str = Form("Raw Data"),
     auth: tuple = Depends(get_current_user),
+    _slot: None = Depends(_one_heavy_job_at_a_time),
 ):
     """Learn a recipe from 2+ finished example branch reports. Each example's
     filename (minus extension) is taken as its branch name - the same
@@ -315,7 +337,7 @@ async def kitchen_train(
         branch = os.path.splitext(file.filename or "")[0]
         dest_path = os.path.join(training_dir, file.filename)
         with open(dest_path, "wb") as f:
-            f.write(await file.read())
+            f.write(file.file.read())
         examples.append({"id": branch, "branch": branch, "path": dest_path})
 
     try:
@@ -333,13 +355,14 @@ async def kitchen_train(
 
 
 @router.post("/kitchen/generate")
-async def kitchen_generate(
+def kitchen_generate(
     master_file: UploadFile = File(...),
     column_name: str = Form(...),
     recipe: str = Form(...),
     overrides: str = Form("{}"),
     output_mode: str = Form("download"),
     auth: tuple = Depends(get_current_user),
+    _slot: None = Depends(_one_heavy_job_at_a_time),
 ):
     """Apply a (possibly manually-edited) recipe to every branch found in the
     master file, generating a matching Summary sheet for each - including
@@ -400,9 +423,8 @@ async def kitchen_generate(
                 zf.writestr(f"{_sanitize_filename(branch)}.xlsx", file_bytes.getvalue())
             if warnings:
                 zf.writestr("_kitchen_warnings.json", json.dumps(warnings, indent=2))
-        zip_buffer.seek(0)
-        return StreamingResponse(
-            zip_buffer,
+        return Response(
+            content=zip_buffer.getvalue(),
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=kitchen_reports.zip"},
         )

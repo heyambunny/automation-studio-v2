@@ -8,6 +8,7 @@ import datetime as dt
 import shutil
 import subprocess
 import tempfile
+import threading
 import zipfile
 import hashlib
 import atexit
@@ -954,6 +955,13 @@ def _soffice_bin():
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
+# Every soffice call shares the default LibreOffice user profile, and a second
+# headless instance started while one is running exits without converting
+# anything. Campaign sends, the scheduler and upload endpoints all run on
+# separate threads, so conversions are serialised here.
+_SOFFICE_LOCK = threading.Lock()
+
+
 # LibreOffice startup dominates .xlsb conversion cost (~6-10s), so converted
 # workbooks are cached for the process lifetime, keyed by file content hash.
 # A whole campaign's files are converted up front in one soffice call via
@@ -995,10 +1003,11 @@ def prewarm_xlsb_conversions(file_paths):
     os.makedirs(_XLSB_CACHE_DIR, exist_ok=True)
     batch_dir = tempfile.mkdtemp(dir=_XLSB_CACHE_DIR)
     try:
-        subprocess.run(
-            [soffice, "--headless", "--convert-to", "xlsx", "--outdir", batch_dir, *pending],
-            capture_output=True, timeout=max(120, 20 * len(pending)), check=False,
-        )
+        with _SOFFICE_LOCK:
+            subprocess.run(
+                [soffice, "--headless", "--convert-to", "xlsx", "--outdir", batch_dir, *pending],
+                capture_output=True, timeout=max(120, 20 * len(pending)), check=False,
+            )
     except (subprocess.SubprocessError, OSError):
         return
     for p in pending:
@@ -1328,11 +1337,12 @@ def prewarm_summary_images(file_paths, sheet_name: str, start_cell: str = ""):
     if not prepped:
         return
     try:
-        subprocess.run(
-            [soffice, "--headless", "--convert-to", "pdf", "--outdir", batch_dir,
-             *[d for _, d in prepped]],
-            capture_output=True, timeout=max(120, 20 * len(prepped)), check=False,
-        )
+        with _SOFFICE_LOCK:
+            subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", "--outdir", batch_dir,
+                 *[d for _, d in prepped]],
+                capture_output=True, timeout=max(120, 20 * len(prepped)), check=False,
+            )
     except (subprocess.SubprocessError, OSError):
         return
     for key, dest in prepped:
