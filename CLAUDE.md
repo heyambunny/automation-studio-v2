@@ -69,6 +69,11 @@ Production `backend/.env` sets `FRONTEND_URL=https://reporting.evolvebrands.tech
 himanshub@evolvebrands.com). To change the reset sender, edit that ID and
 restart the backend. Unset, forgot-password returns 503.
 
+Production `frontend/.env.production` (server only, not in git) sets
+`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_GA_MEASUREMENT_ID=G-8TJBJ2XDKL`
+(Google Analytics 4). Both are baked in at `npm run build`, so changing either
+needs a rebuild + frontend restart. Locally GA is off because the ID is unset.
+
 This app has no migration tool - a schema change means writing a one-off
 `backend/scripts/migrate_*.py` (see existing ones for the pattern) and running
 it by hand, locally and again on the server, before restarting the backend.

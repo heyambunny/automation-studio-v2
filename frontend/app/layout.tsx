@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeContextProvider } from "@/lib/theme-context";
 import { ToastProvider } from "@/components/ui/toast";
+import { GoogleAnalytics } from "@/components/google-analytics";
 import "./globals.css";
 
 const inter = Inter({
@@ -55,6 +56,7 @@ export default function RootLayout({
             </ThemeProvider>
           </ThemeContextProvider>
         </TooltipProvider>
+        <GoogleAnalytics />
       </body>
     </html>
   );
