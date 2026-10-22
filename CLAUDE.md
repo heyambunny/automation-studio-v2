@@ -86,9 +86,12 @@ needs a rebuild + frontend restart. Locally GA is off because the ID is unset.
   missing/stale (>36h) backup.
 - **Memory**: 4 GB swap file (`/swapfile`, swappiness 10) and a systemd drop-in
   `/etc/systemd/system/automation-studio-backend.service.d/memory.conf` capping the backend at
-  `MemoryHigh=2200M / MemoryMax=2800M / MemorySwapMax=0` - a runaway job restarts only this
+  `MemoryHigh=3000M / MemoryMax=3500M / MemorySwapMax=0` - a runaway job restarts only this
   service (Restart=always) instead of freezing the shared box. Laboratory uploads are limited
-  by `LAB_MAX_UPLOAD_MB` (40) and `LAB_MAX_CELLS` (2,000,000; ~450-830 bytes of RAM per cell).
+  by `LAB_MAX_UPLOAD_MB` (40) and `LAB_MAX_CELLS` (2,500,000; ~450-830 bytes of RAM per cell, on top of the backend's ~1 GB baseline, so a
+  worst-case job stays under the 3.5 GB cap). If a legitimate file is refused, raise it in `backend/.env`
+  and restart - but keep baseline + cells x 830 bytes below `MemoryMax`. nginx also cuts a request
+  at 300 s, so very long splits show an error to the user even if they finish.
 - **SMTP passwords are encrypted at rest** with `SMTP_ENCRYPTION_KEY` in `backend/.env` (Fernet).
   **Keep a copy of that key somewhere safe outside the server**: without it the stored passwords
   cannot be decrypted (profiles would have to be re-entered). A fresh environment needs

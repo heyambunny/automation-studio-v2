@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Laboratory (Split / Analyze / Kitchen) guard rails: openpyxl needs ~450-830 bytes
     # of RAM per cell, so an oversized workbook can take the whole server down.
     LAB_MAX_UPLOAD_MB: int = 40
-    LAB_MAX_CELLS: int = 2_000_000
+    LAB_MAX_CELLS: int = 2_500_000
     BACKUP_DIR: str = "/var/backups/automation-studio"  # where ops/backup-db.sh writes dumps
     UPLOAD_RETENTION_DAYS: int = 30  # campaign upload folders older than this are offered for cleanup
 
