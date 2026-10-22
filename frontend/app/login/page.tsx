@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { saveAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,7 @@ export default function LoginPage() {
       sessionStorage.setItem("check_announcement_banner", "1");
       router.push("/dashboard");
     } catch (err) {
-      setError("Invalid email or password");
+      setError(err instanceof ApiError && err.status === 429 ? err.message : "Invalid email or password");
     } finally {
       setLoading(false);
     }

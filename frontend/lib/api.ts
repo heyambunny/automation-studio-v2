@@ -92,6 +92,16 @@ export const api = {
   saveRecipe: (data: any) => apiRequest("/campaigns/recipes", { method: "POST", body: JSON.stringify(data) }),
   updateRecipe: (filename: string, data: any) => apiRequest(`/campaigns/recipes/${encodeURIComponent(filename)}`, { method: "PUT", body: JSON.stringify(data) }),
   executeCampaign: (data: any) => apiRequest("/campaigns/execute-now", { method: "POST", body: JSON.stringify(data) }),
+  preflightCampaign: (data: { mapping_id: number; report_type: string; campaign_folder?: string }) =>
+    apiRequest<{
+      mapping_checksum: string;
+      entries: number;
+      files_checked: number;
+      files_total: number;
+      history_campaigns: number;
+      warn_count: number;
+      issues: { type: string; severity: "warn" | "info"; branch: string; message: string; details: any }[];
+    }>("/campaigns/preflight", { method: "POST", body: JSON.stringify(data) }),
   previewSummary: async (file: File, sheetName: string, summaryFormat: string = "table") => {
     const fd = new FormData();
     fd.append("file", file);
@@ -124,7 +134,21 @@ export const api = {
   markAllNotificationsRead: () => apiRequest("/notifications/read-all", { method: "POST" }),
   getUserSettings: () => apiRequest<any>("/settings/settings"),
   updateUserSettings: (data: any) => apiRequest("/settings/settings", { method: "PUT", body: JSON.stringify(data) }),
-  getAuditLogs: () => apiRequest<any[]>("/audit-logs/"),
+  getCleanupPreview: () => apiRequest<{
+    retention_days: number;
+    total_folders: number;
+    total_bytes: number;
+    candidates: { name: string; bytes: number; files: number; age_days: number; used_by: string[] }[];
+    candidate_bytes: number;
+    protected: { name: string; bytes: number; files: number; age_days: number; used_by: string[]; reason: string }[];
+  }>("/storage/cleanup-preview"),
+  runCleanup: (names: string[]) =>
+    apiRequest<{ deleted: number; freed_bytes: number; skipped: { name: string; reason: string }[] }>("/storage/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ names, confirm: true }),
+    }),
+  sendDigestPreview: () => apiRequest<{ message: string }>("/audit-logs/digest/send", { method: "POST" }),
+  getAuditLogs: (category: "all" | "changes" | "logins" = "all") => apiRequest<any[]>(`/audit-logs/?category=${category}`),
   getAnnouncements: () => apiRequest<any[]>("/announcements/"),
   getAnnouncementBanner: () => apiRequest<{ announcement: any; view_number?: number; view_limit?: number }>("/announcements/banner"),
   createAnnouncement: (data: any) => apiRequest<any>("/announcements/", { method: "POST", body: JSON.stringify(data) }),

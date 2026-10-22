@@ -25,6 +25,7 @@ from app.services.excel_service import (
     get_cell_value,
 )
 from app.services.mascot_service import generate_bounce_gif
+from app.services.recipient_check import check_mapping, audit_recipient_warnings
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -522,9 +523,26 @@ def run_campaign(db: Session, user_id: int, request: CampaignExecuteRequest) -> 
     return {"success": True, "sent": execution.sent_count, "failed": execution.failed_count, "results": results}
 
 
+class PreflightRequest(BaseModel):
+    mapping_id: int
+    report_type: str = ""
+    campaign_folder: Optional[str] = None  # the already-uploaded branch files, to check them against the mapping
+
+
+@router.post("/preflight")
+def preflight_campaign(request: PreflightRequest, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
+    """Warn-only recipient check shown before Send Now / Schedule."""
+    user_id, role = auth
+    mapping = db.query(Mapping).filter_by(id=request.mapping_id).first()
+    if not mapping or (role != "admin" and mapping.user_id != user_id):
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    return check_mapping(db, mapping.id, request.report_type, user_id, role, campaign_folder=request.campaign_folder)
+
+
 @router.post("/execute-now")
 def execute_campaign(request: CampaignExecuteRequest, db: Session = Depends(get_db), auth: tuple = Depends(get_current_user)):
     user_id, role = auth
+    audit_recipient_warnings(db, user_id, role, request.mapping_id, request.report_type, "Sent", request.campaign_folder)
     return run_campaign(db, user_id, request)
 
 

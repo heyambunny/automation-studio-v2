@@ -94,6 +94,8 @@ def create_mapping(mapping: MappingCreate, db: Session = Depends(get_db), auth: 
     
     db.commit()
     db.refresh(new_mapping)
+    log_audit(db, user_id, "mapping.create", "mapping", new_mapping.id,
+              f"Created mapping \"{new_mapping.mapping_name}\" with {len(mapping.entries)} branch(es)")
     return new_mapping
 
 @router.get("/{mapping_id}/entries", response_model=List[MappingEntryResponse])

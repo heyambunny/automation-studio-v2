@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff, Bell, SlidersHorizontal, X } from "lucide-react";
+import { Plus, Mail, Server, Star, Trash2, Users, User, UserPlus, Loader2, CheckCircle2, XCircle, Pencil, Wifi, Eye, EyeOff, Bell, SlidersHorizontal, X, HardDrive } from "lucide-react";
+import { StorageCleanup } from "@/components/settings/storage-cleanup";
 
 const AVATARS = [
   { id: "bear-brown", bg: "bg-amber-100", emoji: "🐻" },
@@ -33,7 +34,7 @@ export default function SettingsPage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"smtp" | "users" | "profile" | "features">("users");
+  const [activeTab, setActiveTab] = useState<"smtp" | "users" | "profile" | "features" | "storage">("users");
 
   // Feature control
   const [featureAccess, setFeatureAccess] = useState<{
@@ -383,6 +384,12 @@ export default function SettingsPage() {
             Features
           </button>
         )}
+        {isAdmin && (
+          <button onClick={() => setActiveTab("storage")} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "storage" ? "bg-white dark:bg-white/15 shadow-sm dark:text-white" : "text-zinc-500 dark:text-zinc-400"}`}>
+            <HardDrive className="w-4 h-4" />
+            Storage
+          </button>
+        )}
       </div>
 
       {/* My Profile */}
@@ -716,6 +723,9 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Storage */}
+      {activeTab === "storage" && isAdmin && <StorageCleanup />}
 
       {/* Edit SMTP Profile Dialog */}
       <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>

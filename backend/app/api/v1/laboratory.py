@@ -14,6 +14,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 import openpyxl
 import pandas as pd
+from app.core.config import settings
 from app.core.security import decode_token
 from app.services.excel_service import _converted_xlsx
 from app.services import kitchen_service
@@ -58,7 +59,50 @@ def _sanitize_filename(value: str) -> str:
     return (name or "Unnamed")[:100]
 
 
+def _check_upload_size(file: UploadFile) -> None:
+    limit_mb = settings.LAB_MAX_UPLOAD_MB
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > limit_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"\"{file.filename}\" is {size / 1_048_576:.0f} MB - the limit is {limit_mb} MB. Remove unused sheets or columns, or split the file before uploading.",
+        )
+
+
+def _check_workbook_size(path: str) -> None:
+    """Refuse workbooks too big to hold in memory. openpyxl needs ~450-830 bytes per
+    cell, so one huge sheet can exhaust the server; the sheet dimensions are read
+    without loading any cells, so this check itself is cheap."""
+    if path.lower().endswith(".csv"):
+        return
+    try:
+        probe = openpyxl.load_workbook(path, read_only=True)
+    except Exception:
+        return  # unreadable files fail with their own clear error when actually opened
+    try:
+        cells = 0
+        for ws in probe.worksheets:
+            rows, cols = ws.max_row, ws.max_column
+            if not rows or not cols:
+                try:
+                    ws.calculate_dimension(force=True)
+                    rows, cols = ws.max_row, ws.max_column
+                except Exception:
+                    rows = cols = 0
+            cells += (rows or 0) * (cols or 0)
+    finally:
+        probe.close()
+    if cells > settings.LAB_MAX_CELLS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"This workbook has about {cells:,} cells across its sheets - the limit is {settings.LAB_MAX_CELLS:,}. Delete empty rows/columns or unused sheets, or split it into smaller files first.",
+        )
+
+
 def _save_upload(file: UploadFile) -> str:
+    _check_upload_size(file)
     suffix = os.path.splitext(file.filename or "")[1].lower() or ".xlsx"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(file.file.read())
@@ -144,6 +188,7 @@ def analyze_file(
             return {"sheet_names": None, "sheets_analyzed": 1, "row_count": row_count, "columns": columns}
 
         work_path = _resolve_workbook_path(tmp_path)
+        _check_workbook_size(work_path)
         wb = openpyxl.load_workbook(work_path, data_only=True)
         sheet_names = wb.sheetnames
 
@@ -288,6 +333,7 @@ def split_file(
                     zf.writestr(f"{_sanitize_filename(group_value)}.csv", out.getvalue())
         else:
             work_path = _resolve_workbook_path(tmp_path)
+            _check_workbook_size(work_path)
             wb = openpyxl.load_workbook(work_path, data_only=True)
             sheet_names = wb.sheetnames
 
@@ -332,6 +378,9 @@ def kitchen_train(
     training_dir = os.path.join(KITCHEN_UPLOADS_DIR, training_id)
     os.makedirs(training_dir, exist_ok=True)
 
+    for file in example_files:
+        _check_upload_size(file)
+
     examples = []
     for file in example_files:
         branch = os.path.splitext(file.filename or "")[0]
@@ -339,6 +388,9 @@ def kitchen_train(
         with open(dest_path, "wb") as f:
             f.write(file.file.read())
         examples.append({"id": branch, "branch": branch, "path": dest_path})
+
+    for ex in examples:
+        _check_workbook_size(ex["path"])
 
     try:
         recipe = kitchen_service.build_recipe(examples, summary_sheet, raw_sheet)
@@ -381,6 +433,7 @@ def kitchen_generate(
     tmp_path = _save_upload(master_file)
     try:
         work_path = _resolve_workbook_path(tmp_path)
+        _check_workbook_size(work_path)
         wb = openpyxl.load_workbook(work_path, data_only=True)
         raw_sheet = recipe_dict["raw_sheet"]
         if raw_sheet not in wb.sheetnames:

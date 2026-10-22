@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Check, Send, FileSpreadsheet, Mail, Settings, Copy, CheckCircle2, Eye, Paperclip, Loader2, CalendarClock, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Send, FileSpreadsheet, Mail, Settings, Copy, CheckCircle2, Eye, Paperclip, Loader2, CalendarClock, FileText, TriangleAlert } from "lucide-react";
 import { CellReferenceField, CELL_REF_RE, type CellLookupResult } from "@/components/campaigns/cell-reference-field";
 
 const steps = ["Send Method", "Mapping & Files", "Content", "Preview", "Action"];
@@ -92,6 +92,12 @@ export default function NewCampaignPage() {
   const [saveName, setSaveName] = useState("");
   const [executing, setExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<any>(null);
+  const [recipientCheck, setRecipientCheck] = useState<{
+    kind: "send" | "schedule";
+    history_campaigns: number;
+    issues: { type: string; severity: "warn" | "info"; branch: string; message: string; details: any }[];
+  } | null>(null);
+  const uploadedFolderRef = useRef<{ files: FileList | null; folder: string } | null>(null);
   const [previewBranch, setPreviewBranch] = useState("Mumbai");
   const [recipeLoaded, setRecipeLoaded] = useState(false);
   const [recipeName, setRecipeName] = useState("");
@@ -459,6 +465,9 @@ export default function NewCampaignPage() {
   // campaign (immediate or scheduled) can find them.
   const uploadCampaignFiles = async (): Promise<string> => {
     if (preloadedFolder) return preloadedFolder.campaign_folder;
+    // The recipient check runs after the upload (it inspects the files), so Send /
+    // Schedule must reuse that upload rather than upload the same files again.
+    if (uploadedFolderRef.current && uploadedFolderRef.current.files === files) return uploadedFolderRef.current.folder;
     const formData = new FormData();
     if (files) {
       for (let i = 0; i < files.length; i++) {
@@ -473,6 +482,7 @@ export default function NewCampaignPage() {
     });
     if (!uploadResponse.ok) throw new Error("File upload failed");
     const uploadResult = await uploadResponse.json();
+    uploadedFolderRef.current = { files, folder: uploadResult.campaign_folder || "" };
     return uploadResult.campaign_folder || "";
   };
 
@@ -488,7 +498,42 @@ export default function NewCampaignPage() {
     campaign_folder: campaignFolder,
   });
 
+  // Warn-only: compares this mapping's recipients with what earlier campaigns
+  // actually sent. Returns null when there's nothing to flag - and also when the
+  // check itself fails, because an unavailable check must never block a send.
+  const fetchRecipientWarnings = async (campaignFolder: string) => {
+    const mappingId = mappings.find(m => m.mapping_name === selectedMapping)?.id;
+    if (!mappingId) return null;
+    try {
+      const result = await api.preflightCampaign({ mapping_id: mappingId, report_type: reportType, campaign_folder: campaignFolder });
+      return result.warn_count > 0 ? result : null;
+    } catch (err) {
+      console.warn("Recipient check unavailable", err);
+      return null;
+    }
+  };
+
   const handleExecute = async () => {
+    setExecuting(true);
+    setExecutionResult(null);
+    let campaignFolder = "";
+    try {
+      campaignFolder = await uploadCampaignFiles();
+    } catch (err: any) {
+      setExecutionResult({ success: false, message: err.message || "Failed" });
+      setExecuting(false);
+      return;
+    }
+    const warnings = await fetchRecipientWarnings(campaignFolder);
+    if (warnings) {
+      setExecuting(false);
+      setRecipientCheck({ kind: "send", history_campaigns: warnings.history_campaigns, issues: warnings.issues });
+      return;
+    }
+    await runExecute();
+  };
+
+  const runExecute = async () => {
     setExecuting(true);
     setExecutionResult(null);
     try {
@@ -506,6 +551,27 @@ export default function NewCampaignPage() {
     if (!scheduleRunAt) return;
     setScheduling(true);
     setScheduleResult(null);
+    let campaignFolder = "";
+    try {
+      campaignFolder = await uploadCampaignFiles();
+    } catch (err: any) {
+      setScheduleResult({ success: false, message: err.message || "Failed to schedule" });
+      setScheduling(false);
+      return;
+    }
+    const warnings = await fetchRecipientWarnings(campaignFolder);
+    if (warnings) {
+      setScheduling(false);
+      setScheduleOpen(false);
+      setRecipientCheck({ kind: "schedule", history_campaigns: warnings.history_campaigns, issues: warnings.issues });
+      return;
+    }
+    await runSchedule();
+  };
+
+  const runSchedule = async () => {
+    setScheduling(true);
+    setScheduleResult(null);
     try {
       const campaignFolder = await uploadCampaignFiles();
       const result = await api.createSchedule({
@@ -520,6 +586,15 @@ export default function NewCampaignPage() {
     } finally {
       setScheduling(false);
     }
+  };
+
+  const closeRecipientCheck = (proceed: boolean) => {
+    const kind = recipientCheck?.kind;
+    setRecipientCheck(null);
+    if (kind === "schedule") setScheduleOpen(true);
+    if (!proceed) return;
+    if (kind === "send") runExecute();
+    else if (kind === "schedule") runSchedule();
   };
 
   const stepIcons = [Mail, FileSpreadsheet, Settings, Eye, Send];
@@ -1054,6 +1129,58 @@ export default function NewCampaignPage() {
           Next<ChevronRight className="w-4 h-4 ml-1" />
         </Button>
       </div>
+
+      <Dialog open={!!recipientCheck} onOpenChange={(open) => { if (!open) closeRecipientCheck(false); }}>
+        <DialogContent className="sm:max-w-lg dark:bg-[#1A1A1A] dark:border-white/10">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 dark:text-white">
+              <TriangleAlert className="w-4 h-4 text-amber-500" />Check these recipients first
+            </DialogTitle>
+            <DialogDescription className="dark:text-zinc-400">
+              Compared with {recipientCheck?.history_campaigns ?? 0} earlier send{recipientCheck?.history_campaigns === 1 ? "" : "s"}, this mapping looks different.
+              Nothing is blocked - make sure these are intended.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto space-y-2 pr-1">
+            {recipientCheck?.issues.filter((i) => i.severity === "warn").map((issue, idx) => (
+              <div key={idx} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-500/30 dark:bg-amber-500/10">
+                <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">{issue.branch}</p>
+                <p className="text-xs text-amber-800 dark:text-amber-100/80 mt-0.5">{issue.message}</p>
+                {issue.type === "person_moved" && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {issue.details.slice(0, 4).map((p: any) => (
+                      <li key={p.email} className="text-[11px] text-amber-800/90 dark:text-amber-100/70">
+                        {p.email} <span className="opacity-70">- was {p.previously.join(", ")}</span>
+                      </li>
+                    ))}
+                    {issue.details.length > 4 && <li className="text-[11px] opacity-70 text-amber-800 dark:text-amber-100/70">+{issue.details.length - 4} more</li>}
+                  </ul>
+                )}
+              </div>
+            ))}
+            {recipientCheck && recipientCheck.issues.some((i) => i.severity === "info") && (
+              <details className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-white/10">
+                <summary className="text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer">
+                  Minor changes ({recipientCheck.issues.filter((i) => i.severity === "info").length})
+                </summary>
+                <ul className="mt-2 space-y-1">
+                  {recipientCheck.issues.filter((i) => i.severity === "info").map((issue, idx) => (
+                    <li key={idx} className="text-xs text-zinc-600 dark:text-zinc-300">{issue.message}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1 dark:border-white/20 dark:text-white dark:hover:bg-white/10" onClick={() => closeRecipientCheck(false)}>
+              Go back and check
+            </Button>
+            <Button className="flex-1 bg-[#0A0A0A] text-white hover:bg-zinc-800 border border-white/20" onClick={() => closeRecipientCheck(true)}>
+              {recipientCheck?.kind === "schedule" ? "Schedule anyway" : "Send anyway"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
         <DialogContent className="sm:max-w-sm dark:bg-[#1A1A1A] dark:border-white/10">

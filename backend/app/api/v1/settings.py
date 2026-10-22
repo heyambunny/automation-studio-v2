@@ -60,6 +60,8 @@ def create_profile(profile: SMTPProfileCreate, db: Session = Depends(get_db), au
     db.add(new_profile)
     db.commit()
     db.refresh(new_profile)
+    log_audit(db, user_id, "smtp_profile.create", "smtp_profile", new_profile.id,
+              f"Created profile \"{new_profile.profile_name}\" ({new_profile.sender_email} via {new_profile.smtp_server})")
     return new_profile
 
 @router.put("/smtp-profiles/{profile_id}")
@@ -70,6 +72,16 @@ def update_profile(profile_id: int, profile: SMTPProfileCreate, db: Session = De
         raise HTTPException(status_code=404, detail="Profile not found")
     if role != "admin" and existing.user_id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    changed = [
+        label for label, before, after in [
+            ("name", existing.profile_name, profile.profile_name),
+            ("server", existing.smtp_server, profile.smtp_server),
+            ("port", existing.smtp_port, profile.smtp_port),
+            ("sender email", existing.sender_email, profile.sender_email),
+            ("sender name", existing.sender_name, profile.sender_name),
+            ("TLS", existing.use_tls, profile.use_tls),
+        ] if before != after
+    ]
     existing.profile_name = profile.profile_name
     existing.smtp_server = profile.smtp_server
     existing.smtp_port = profile.smtp_port
@@ -78,7 +90,10 @@ def update_profile(profile_id: int, profile: SMTPProfileCreate, db: Session = De
     existing.use_tls = profile.use_tls
     if profile.password:
         existing.password = profile.password
+        changed.append("password")
     db.commit()
+    log_audit(db, user_id, "smtp_profile.update", "smtp_profile", profile_id,
+              f"Updated profile \"{existing.profile_name}\" - changed: {', '.join(changed) or 'nothing'}")
     return {"message": "Profile updated"}
 
 @router.delete("/smtp-profiles/{profile_id}")

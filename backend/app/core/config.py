@@ -9,8 +9,20 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 1
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
     FRONTEND_URL: str = "http://localhost:3000"  # base URL used to build links in outgoing emails
-    PASSWORD_RESET_SMTP_PROFILE_ID: Optional[int] = None  # SMTP profile that sends forgot-password emails
+    PASSWORD_RESET_SMTP_PROFILE_ID: Optional[int] = None  # system mailbox: sends forgot-password emails and the weekly admin digest
     PASSWORD_RESET_TOKEN_MINUTES: int = 30
+    WEEKLY_DIGEST_ENABLED: bool = True  # Monday 09:00 server time; sent from the same system mail profile as password resets
+    # Fernet key that encrypts SMTP mailbox passwords at rest (generate with
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
+    # Unset = passwords are stored and read as plain text, as before. Losing the key
+    # makes already-encrypted passwords unrecoverable (profiles need re-entering).
+    SMTP_ENCRYPTION_KEY: Optional[str] = None
+    # Laboratory (Split / Analyze / Kitchen) guard rails: openpyxl needs ~450-830 bytes
+    # of RAM per cell, so an oversized workbook can take the whole server down.
+    LAB_MAX_UPLOAD_MB: int = 40
+    LAB_MAX_CELLS: int = 2_000_000
+    BACKUP_DIR: str = "/var/backups/automation-studio"  # where ops/backup-db.sh writes dumps
+    UPLOAD_RETENTION_DAYS: int = 30  # campaign upload folders older than this are offered for cleanup
 
     class Config:
         env_file = ".env"

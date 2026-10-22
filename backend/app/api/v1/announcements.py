@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.core.audit import log_audit
 from app.models import Announcement, AnnouncementView, User
 
 router = APIRouter(prefix="/announcements", tags=["announcements"])
@@ -69,6 +70,7 @@ def create_announcement(data: AnnouncementCreate, db: Session = Depends(get_db),
     db.add(announcement)
     db.commit()
     db.refresh(announcement)
+    log_audit(db, user_id, "announcement.create", "announcement", announcement.id, f"Published \"{announcement.title}\"")
     return _serialize(announcement, db)
 
 @router.delete("/{announcement_id}")
@@ -79,7 +81,9 @@ def delete_announcement(announcement_id: int, db: Session = Depends(get_db), aut
     announcement = db.query(Announcement).filter_by(id=announcement_id).first()
     if not announcement:
         raise HTTPException(status_code=404, detail="Announcement not found")
+    title = announcement.title
     db.query(AnnouncementView).filter_by(announcement_id=announcement_id).delete()
     db.delete(announcement)
     db.commit()
+    log_audit(db, user_id, "announcement.delete", "announcement", announcement_id, f"Deleted \"{title}\"")
     return {"message": "Announcement deleted"}

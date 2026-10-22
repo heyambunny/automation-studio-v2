@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ShieldAlert, UserPlus, UserMinus, UserCog, Mail, FileSpreadsheet, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { ShieldAlert, UserPlus, UserMinus, UserCog, Mail, FileSpreadsheet, Clock, ChevronLeft, ChevronRight, LogIn, KeyRound, CalendarClock, Megaphone, TriangleAlert, Lock, HardDrive } from "lucide-react";
 
 const ACTION_META: Record<string, { icon: any; label: string; color: string }> = {
   "user.create": { icon: UserPlus, label: "User created", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -16,7 +16,28 @@ const ACTION_META: Record<string, { icon: any; label: string; color: string }> =
   "user.delete": { icon: UserMinus, label: "User deleted", color: "bg-red-50 text-red-700 border-red-200" },
   "smtp_profile.delete": { icon: Mail, label: "SMTP profile deleted", color: "bg-red-50 text-red-700 border-red-200" },
   "mapping.delete": { icon: FileSpreadsheet, label: "Mapping deleted", color: "bg-red-50 text-red-700 border-red-200" },
+  "smtp_profile.create": { icon: Mail, label: "SMTP profile created", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "smtp_profile.update": { icon: Mail, label: "SMTP profile updated", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  "mapping.create": { icon: FileSpreadsheet, label: "Mapping created", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "schedule.create": { icon: CalendarClock, label: "Schedule created", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "schedule.update": { icon: CalendarClock, label: "Schedule changed", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  "schedule.cancel": { icon: CalendarClock, label: "Schedule cancelled", color: "bg-red-50 text-red-700 border-red-200" },
+  "announcement.create": { icon: Megaphone, label: "Announcement published", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  "announcement.delete": { icon: Megaphone, label: "Announcement deleted", color: "bg-red-50 text-red-700 border-red-200" },
+  "user.password_change": { icon: KeyRound, label: "Password changed", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  "user.password_reset": { icon: KeyRound, label: "Password reset by email", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  "campaign.recipient_warnings": { icon: TriangleAlert, label: "Sent with recipient warnings", color: "bg-amber-50 text-amber-700 border-amber-200" },
+  "storage.cleanup": { icon: HardDrive, label: "Old uploads deleted", color: "bg-red-50 text-red-700 border-red-200" },
+  "auth.login": { icon: LogIn, label: "Signed in", color: "bg-zinc-50 text-zinc-600 border-zinc-200" },
+  "auth.login_failed": { icon: ShieldAlert, label: "Failed sign-in", color: "bg-amber-50 text-amber-700 border-amber-200" },
+  "auth.login_locked": { icon: Lock, label: "Sign-in locked", color: "bg-red-50 text-red-700 border-red-200" },
 };
+
+const CATEGORIES = [
+  { key: "all", label: "All" },
+  { key: "changes", label: "Changes" },
+  { key: "logins", label: "Sign-ins" },
+] as const;
 
 const ITEMS_PER_PAGE = 15;
 
@@ -26,6 +47,22 @@ export default function AuditLogPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [category, setCategory] = useState<"all" | "changes" | "logins">("changes");
+  const [digestStatus, setDigestStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [digestSending, setDigestSending] = useState(false);
+
+  const sendDigest = async () => {
+    setDigestSending(true);
+    setDigestStatus(null);
+    try {
+      const result = await api.sendDigestPreview();
+      setDigestStatus({ ok: true, text: result.message });
+    } catch (err: any) {
+      setDigestStatus({ ok: false, text: err.message || "Could not send the digest" });
+    } finally {
+      setDigestSending(false);
+    }
+  };
 
   useEffect(() => {
     const userData = getUser();
@@ -38,11 +75,13 @@ export default function AuditLogPage() {
       return;
     }
     setUser(userData);
-    api.getAuditLogs()
+    setLoading(true);
+    setCurrentPage(1);
+    api.getAuditLogs(category)
       .then(setLogs)
       .catch(() => console.error("Failed to load audit logs"))
       .finally(() => setLoading(false));
-  }, [router]);
+  }, [router, category]);
 
   const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
   const paginated = logs.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -55,7 +94,32 @@ export default function AuditLogPage() {
         <ShieldAlert className="w-6 h-6 text-zinc-400" />
         <div>
           <h2 className="text-2xl font-bold text-[#0A0A0A] dark:text-white">Audit Log</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">Sensitive admin actions across the app</p>
+          <p className="text-sm text-zinc-500 mt-0.5">Sensitive actions, changes and sign-ins across the app</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-5">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => setCategory(c.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              category === c.key
+                ? "bg-[#0A0A0A] text-white dark:bg-white dark:text-[#0A0A0A]"
+                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-2">
+          {digestStatus && (
+            <span className={`text-xs ${digestStatus.ok ? "text-emerald-600" : "text-red-600"}`}>{digestStatus.text}</span>
+          )}
+          <Button variant="outline" size="sm" onClick={sendDigest} disabled={digestSending} className="h-8 text-xs dark:border-white/20 dark:text-white dark:hover:bg-white/10">
+            <Mail className="w-3.5 h-3.5 mr-1.5" />{digestSending ? "Sending..." : "Email me the weekly digest"}
+          </Button>
         </div>
       </div>
 
@@ -93,7 +157,7 @@ export default function AuditLogPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge className={meta.color}>{meta.label}</Badge>
                     <span className="text-xs text-zinc-400">
-                      by {l.actor_name || l.actor_email || "Unknown"}
+                      {l.actor_name || l.actor_email ? `by ${l.actor_name || l.actor_email}` : l.action.startsWith("auth.") ? "no one signed in" : "by Unknown"}
                     </span>
                   </div>
                   {l.details && <p className="text-sm text-zinc-600 dark:text-zinc-300 mt-1.5">{l.details}</p>}

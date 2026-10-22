@@ -2,13 +2,14 @@ import hashlib
 import html
 import secrets
 from datetime import datetime, timedelta
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Header
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status, Header
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.audit import log_audit
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.login_guard import login_guard
 from app.core.security import verify_password, create_access_token, create_refresh_token, decode_token, hash_password
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest
 from app.models import User, SMTPProfile, PasswordResetToken
@@ -35,14 +36,35 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(request: LoginRequest, http_request: Request, db: Session = Depends(get_db)):
+    email_key = (request.email or "").strip().lower()
+    ip = http_request.client.host if http_request.client else "unknown"
+
+    wait = login_guard.retry_after(email_key, ip)
+    if wait:
+        minutes = max(1, round(wait / 60))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed sign-in attempts. Try again in {minutes} minute{'s' if minutes != 1 else ''}, or use \"Forgot password?\" to reset it.",
+            headers={"Retry-After": str(wait)},
+        )
+
     user = db.query(User).filter(User.email == request.email, User.is_active == 'Y').first()
-    
+
     if not user or not verify_password(request.password, user.password_hash):
+        locked = login_guard.record_failure(email_key, ip)
+        # Only real accounts are logged: wrong guesses at made-up addresses
+        # would otherwise let anyone fill the audit log.
+        if user:
+            log_audit(db, None, "auth.login_failed", "user", user.id, f"Wrong password for {user.email} from {ip}")
+            if locked:
+                log_audit(db, None, "auth.login_locked", "user", user.id, f"Sign-in locked for 15 minutes after repeated failures for {user.email} (latest from {ip})")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    login_guard.record_success(email_key, ip)
     user.last_login = datetime.utcnow()
     db.commit()
+    log_audit(db, user.id, "auth.login", "user", user.id, f"{user.email} signed in from {ip}")
 
     access_token = create_access_token(user.id, user.role.value if user.role else "viewer")
     refresh_token = create_refresh_token(user.id)
@@ -77,6 +99,7 @@ def change_password(request: dict, db: Session = Depends(get_db), authorization:
     
     user.password_hash = hash_password(new_password)
     db.commit()
+    log_audit(db, user.id, "user.password_change", "user", user.id, f"{user.email} changed their own password")
     return {"message": "Password changed successfully"}
 
 @router.post("/refresh")
@@ -218,5 +241,6 @@ def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db))
         PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None)
     ).update({"used_at": now})
     db.commit()
+    login_guard.clear_email(user.email.strip().lower())
     log_audit(db, user.id, "user.password_reset", "user", user.id, f"{user.email} reset their password via emailed link")
     return {"message": "Password updated. You can now sign in with your new password."}

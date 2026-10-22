@@ -26,7 +26,9 @@ import json
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Schedule
 
@@ -123,11 +125,28 @@ def send_upcoming_reminders():
         db.close()
 
 
+def send_weekly_digest_job():
+    from app.services.weekly_digest import send_weekly_digest
+
+    db = SessionLocal()
+    try:
+        print(f"Weekly digest: {send_weekly_digest(db)}")
+    except Exception as e:  # noqa: BLE001 - a failed digest must never take the scheduler down
+        print(f"Weekly digest failed: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     global _started
     if _started:
         return
     _scheduler.add_job(run_due_schedules, "interval", minutes=1, id="run_due_schedules", replace_existing=True)
     _scheduler.add_job(send_upcoming_reminders, "interval", minutes=1, id="send_upcoming_reminders", replace_existing=True)
+    if settings.WEEKLY_DIGEST_ENABLED:
+        _scheduler.add_job(
+            send_weekly_digest_job, CronTrigger(day_of_week="mon", hour=9, minute=0),
+            id="weekly_digest", replace_existing=True, misfire_grace_time=3600, coalesce=True,
+        )
     _scheduler.start()
     _started = True

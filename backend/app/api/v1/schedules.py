@@ -6,11 +6,13 @@ from datetime import datetime
 import json
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.core.audit import log_audit
 from app.models import Schedule, SMTPProfile, Setting, User
 from app.api.v1.campaigns_execute import (
     CampaignExecuteRequest, send_email, _build_schedule_confirmation_email, _smtp_config_from_profile,
 )
 from app.services.mascot_service import generate_bounce_gif
+from app.services.recipient_check import audit_recipient_warnings
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 
@@ -54,6 +56,10 @@ def create_schedule(payload: ScheduleCreateRequest, db: Session = Depends(get_db
     db.add(schedule)
     db.commit()
     db.refresh(schedule)
+
+    log_audit(db, user_id, "schedule.create", "schedule", schedule.id,
+              f"Scheduled \"{schedule.schedule_name}\" ({schedule.frequency}) from {schedule.next_run:%d %b %Y %H:%M}")
+    audit_recipient_warnings(db, user_id, role, payload.campaign.mapping_id, payload.campaign.report_type, "Scheduled", payload.campaign.campaign_folder)
 
     try:
         _send_schedule_confirmation(db, schedule)
@@ -115,18 +121,29 @@ def update_schedule(schedule_id: int, payload: ScheduleUpdateRequest, db: Sessio
     if role != "admin" and schedule.user_id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    changes = []
     if payload.frequency is not None:
         if payload.frequency not in FREQUENCIES:
             raise HTTPException(status_code=400, detail=f"frequency must be one of {FREQUENCIES}")
+        if payload.frequency != schedule.frequency:
+            changes.append(f"frequency {schedule.frequency} -> {payload.frequency}")
         schedule.frequency = payload.frequency
     if payload.schedule_name is not None:
+        if payload.schedule_name != schedule.schedule_name:
+            changes.append(f"name \"{schedule.schedule_name}\" -> \"{payload.schedule_name}\"")
         schedule.schedule_name = payload.schedule_name
     if payload.next_run is not None:
+        if payload.next_run != schedule.next_run:
+            changes.append(f"next run {schedule.next_run:%d %b %H:%M} -> {payload.next_run:%d %b %H:%M}")
         schedule.next_run = payload.next_run
     if payload.enabled is not None:
+        if payload.enabled != schedule.enabled:
+            changes.append("enabled" if payload.enabled else "paused")
         schedule.enabled = payload.enabled
 
     db.commit()
+    if changes:
+        log_audit(db, user_id, "schedule.update", "schedule", schedule.id, f"\"{schedule.schedule_name}\": {'; '.join(changes)}")
     return {
         "id": schedule.id,
         "schedule_name": schedule.schedule_name,
@@ -145,4 +162,5 @@ def cancel_schedule(schedule_id: int, db: Session = Depends(get_db), auth: tuple
         raise HTTPException(status_code=403, detail="Access denied")
     schedule.enabled = False
     db.commit()
+    log_audit(db, user_id, "schedule.cancel", "schedule", schedule.id, f"Cancelled \"{schedule.schedule_name}\"")
     return {"message": "Schedule cancelled"}

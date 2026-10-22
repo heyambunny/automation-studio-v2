@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.core.database import Base
+from app.core.crypto import EncryptedString
 
 class SMTPProfile(Base):
     __tablename__ = "smtp_profiles"
@@ -15,7 +16,7 @@ class SMTPProfile(Base):
     smtp_port = Column(Integer, nullable=False)
     sender_email = Column(String(255), nullable=False)
     sender_name = Column(String(100))
-    password = Column(String(255), nullable=False)
+    password = Column(EncryptedString, nullable=False)
     use_tls = Column(Boolean, default=True)
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

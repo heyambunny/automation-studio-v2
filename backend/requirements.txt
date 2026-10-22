@@ -14,3 +14,4 @@ apscheduler==3.10.4
 pymupdf==1.28.2
 pyxlsb==1.0.10
 Pillow==12.3.0
+cryptography
