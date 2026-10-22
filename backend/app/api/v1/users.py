@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import decode_token, hash_password
 from app.core.audit import log_audit
-from app.models import User, UserRole, Execution, EmailLog
+from app.models import User, UserRole, Execution, EmailLog, MappingEntry
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -147,16 +147,27 @@ def delete_user(user_id: int, db: Session = Depends(get_db), auth: int = Depends
         raise HTTPException(status_code=404, detail="User not found")
     deleted_email = user.email
 
-    # Delete related records
-    from app.models import Setting, SMTPProfile, Mapping, Template, Execution, Schedule, GameScore, PasswordResetToken
-    db.query(PasswordResetToken).filter_by(user_id=user_id).delete()
-    db.query(Setting).filter_by(user_id=user_id).delete()
-    db.query(SMTPProfile).filter_by(user_id=user_id).delete()
+    # Delete related records, children before parents. Audit history is kept
+    # (the actor is just blanked) - the log must outlive the people in it.
+    from app.models import (Setting, SMTPProfile, Mapping, Template, Execution, Schedule, GameScore,
+                            PasswordResetToken, Notification, AuditLog, AnnouncementView, Announcement, FeatureAccess)
+    execution_ids = [r[0] for r in db.query(Execution.id).filter_by(user_id=user_id).all()]
+    mapping_ids = [r[0] for r in db.query(Mapping.id).filter_by(user_id=user_id).all()]
+    db.query(EmailLog).filter(EmailLog.execution_id.in_(execution_ids)).delete(synchronize_session=False)
+    db.query(Execution).filter_by(user_id=user_id).delete()
+    db.query(MappingEntry).filter(MappingEntry.mapping_id.in_(mapping_ids)).delete(synchronize_session=False)
     db.query(Mapping).filter_by(user_id=user_id).delete()
     db.query(Template).filter_by(user_id=user_id).delete()
-    db.query(Execution).filter_by(user_id=user_id).delete()
     db.query(Schedule).filter_by(user_id=user_id).delete()
+    db.query(SMTPProfile).filter_by(user_id=user_id).delete()
+    db.query(Setting).filter_by(user_id=user_id).delete()
     db.query(GameScore).filter_by(user_id=user_id).delete()
+    db.query(Notification).filter_by(user_id=user_id).delete()
+    db.query(PasswordResetToken).filter_by(user_id=user_id).delete()
+    db.query(AnnouncementView).filter_by(user_id=user_id).delete()
+    db.query(FeatureAccess).filter_by(user_id=user_id).delete()
+    db.query(Announcement).filter_by(created_by=user_id).update({"created_by": None})
+    db.query(AuditLog).filter_by(user_id=user_id).update({"user_id": None})
 
     db.delete(user)
     db.commit()
