@@ -10,9 +10,10 @@ from app.core.audit import log_audit
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.login_guard import login_guard
+from app.services.notify import notify_admins, notify_user
 from app.core.security import verify_password, create_access_token, create_refresh_token, decode_token, hash_password
 from app.schemas.auth import LoginRequest, TokenResponse, RefreshRequest
-from app.models import User, SMTPProfile, PasswordResetToken
+from app.models import AuditLog, User, SMTPProfile, PasswordResetToken
 from app.api.v1.campaigns_execute import send_email, _smtp_config_from_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -59,12 +60,30 @@ def login(request: LoginRequest, http_request: Request, db: Session = Depends(ge
             log_audit(db, None, "auth.login_failed", "user", user.id, f"Wrong password for {user.email} from {ip}")
             if locked:
                 log_audit(db, None, "auth.login_locked", "user", user.id, f"Sign-in locked for 15 minutes after repeated failures for {user.email} (latest from {ip})")
+                notify_user(db, user.id, "security_locked", "Your sign-in was locked",
+                            "Someone entered the wrong password several times. Sign-in is paused for 15 minutes - if that wasn't you, change your password once you're back in.", "/settings")
+                notify_admins(db, "admin_locked_out", f"{user.full_name or user.email} was locked out",
+                              f"Repeated wrong passwords on {user.email} (latest from {ip}). Sign-in is paused for 15 minutes.", "/audit-log", exclude_user_id=user.id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     login_guard.record_success(email_key, ip)
+    previous_login = user.last_login
     user.last_login = datetime.utcnow()
     db.commit()
     log_audit(db, user.id, "auth.login", "user", user.id, f"{user.email} signed in from {ip}")
+
+    # Wrong-password attempts since their last visit are the thing an account owner
+    # can't otherwise see - tell them once, now that they're signed in.
+    missed = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "auth.login_failed", AuditLog.entity_id == user.id,
+                AuditLog.created_at > (previous_login or datetime.utcnow() - timedelta(days=7)))
+        .order_by(AuditLog.id.desc()).all()
+    )
+    if missed:
+        latest_ip = (missed[0].details or "").rsplit(" from ", 1)[-1]
+        notify_user(db, user.id, "security_failed_logins", f"{len(missed)} failed sign-in attempt{'s' if len(missed) != 1 else ''} on your account",
+                    f"Wrong passwords were entered since you last signed in (latest from {latest_ip}). If that wasn't you, change your password.", "/settings")
 
     access_token = create_access_token(user.id, user.role.value if user.role else "viewer")
     refresh_token = create_refresh_token(user.id)
@@ -100,6 +119,8 @@ def change_password(request: dict, db: Session = Depends(get_db), authorization:
     user.password_hash = hash_password(new_password)
     db.commit()
     log_audit(db, user.id, "user.password_change", "user", user.id, f"{user.email} changed their own password")
+    notify_user(db, user.id, "security_password_changed", "Your password was changed",
+                "If you didn't do this, use \"Forgot password?\" on the sign-in page right away and tell an admin.", "/settings")
     return {"message": "Password changed successfully"}
 
 @router.post("/refresh")
@@ -243,4 +264,6 @@ def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db))
     db.commit()
     login_guard.clear_email(user.email.strip().lower())
     log_audit(db, user.id, "user.password_reset", "user", user.id, f"{user.email} reset their password via emailed link")
+    notify_user(db, user.id, "security_password_changed", "Your password was reset",
+                "It was changed using the emailed reset link. If that wasn't you, tell an admin right away.", "/settings")
     return {"message": "Password updated. You can now sign in with your new password."}

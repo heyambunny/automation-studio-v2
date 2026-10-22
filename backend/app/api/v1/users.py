@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import decode_token, hash_password
 from app.core.audit import log_audit
+from app.services.notify import notify_admins, notify_user
 from app.models import User, UserRole, Execution, EmailLog, MappingEntry
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -104,6 +105,10 @@ def create_user(user_data: UserCreate, db: Session = Depends(get_db), auth: int 
     db.commit()
     db.refresh(new_user)
     log_audit(db, auth, "user.create", "user", new_user.id, f"Created {new_user.email} ({new_user.role.value})")
+    creator = db.query(User).filter_by(id=auth).first()
+    notify_admins(db, "admin_new_member", f"New member: {new_user.full_name or new_user.email}",
+                  f"{new_user.email} was added as {new_user.role.value} by {creator.full_name or creator.email if creator else 'an admin'}.",
+                  "/settings", exclude_user_id=auth)
     return {"id": new_user.id, "email": new_user.email, "full_name": new_user.full_name, "role": new_user.role.value}
 
 @router.get("/me")
@@ -138,6 +143,9 @@ def update_user(user_id: int, user_data: UserCreate, db: Session = Depends(get_d
         user.password_hash = hash_password(user_data.password)
     db.commit()
     log_audit(db, auth, "user.update", "user", user.id, f"Updated {user.email} ({user.role.value})")
+    if user_data.password:
+        notify_user(db, user.id, "security_password_changed", "Your password was changed by an admin",
+                    "Use the new password the next time you sign in, and change it in Settings if you like.", "/settings")
     return {"message": "User updated"}
 
 @router.delete("/{user_id}")

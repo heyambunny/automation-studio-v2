@@ -2,8 +2,19 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCircle2, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, XCircle, ShieldAlert, Lock, KeyRound, UserPlus, TriangleAlert } from "lucide-react";
 import { api } from "@/lib/api";
+
+// Icon + colour per notification type; anything unlisted (campaign completed, etc.) shows the green tick.
+const TYPE_ICONS: Record<string, { icon: any; color: string }> = {
+  campaign_failed: { icon: XCircle, color: "text-red-500" },
+  security_locked: { icon: Lock, color: "text-red-500" },
+  security_failed_logins: { icon: ShieldAlert, color: "text-amber-500" },
+  security_password_changed: { icon: KeyRound, color: "text-blue-500" },
+  admin_new_member: { icon: UserPlus, color: "text-emerald-500" },
+  admin_locked_out: { icon: Lock, color: "text-red-500" },
+  admin_send_warnings: { icon: TriangleAlert, color: "text-amber-500" },
+};
 
 function timeAgo(iso: string) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -112,11 +123,10 @@ export function NotificationBell() {
                     className={`w-full text-left px-4 py-3 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors cursor-pointer ${!n.is_read ? "bg-zinc-50/60 dark:bg-white/[0.03]" : ""}`}
                   >
                     <div className="flex items-start gap-2">
-                      {n.type === "campaign_failed" ? (
-                        <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
-                      ) : (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                      )}
+                      {(() => {
+                        const meta = TYPE_ICONS[n.type] ?? { icon: CheckCircle2, color: "text-emerald-500" };
+                        return <meta.icon className={`w-3.5 h-3.5 ${meta.color} mt-0.5 shrink-0`} />;
+                      })()}
                       <div className="flex-1 min-w-0">
                         <p className={`text-xs ${!n.is_read ? "font-semibold" : "font-medium"} dark:text-white truncate`}>{n.title}</p>
                         {n.message && <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{n.message}</p>}

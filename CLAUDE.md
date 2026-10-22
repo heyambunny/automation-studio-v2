@@ -99,6 +99,10 @@ needs a rebuild + frontend restart. Locally GA is off because the ID is unset.
   legacy plain text, so it is safe to roll out in either order.
 - **Login lockout** (`app/core/login_guard.py`): 5 wrong passwords per account+IP, 20 per
   account, or 30 per IP -> 15-minute lock (in memory; a backend restart clears it).
+- **Bell notifications** (`app/services/notify.py`): a member is told when their sign-in is locked,
+  when wrong passwords were tried on their account since they last signed in, and when their password
+  is changed/reset; admins are told about new members, lockouts, and sends/schedules that went out with
+  open recipient warnings. Security ones can't be switched off; failures in notifying never break the action.
 - **Weekly admin digest**: Mondays 09:00 server time, sent from the system mail profile
   (`PASSWORD_RESET_SMTP_PROFILE_ID`); `WEEKLY_DIGEST_ENABLED=false` turns it off. Audit Log has a
   "Email me the weekly digest" button that mails only the calling admin.

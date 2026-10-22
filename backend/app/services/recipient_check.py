@@ -27,6 +27,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_audit
+from app.services.notify import notify_admins
 from app.models import EmailLog, Execution, Mapping, MappingEntry, User
 from app.services.campaign_file_check import check_files, resolve_campaign_folder
 
@@ -305,6 +306,13 @@ def audit_recipient_warnings(db: Session, user_id: int, role: str, mapping_id, r
             log_audit(
                 db, user_id, "campaign.recipient_warnings", "mapping", mapping_id,
                 f"{action} '{report_type}' with {result['warn_count']} recipient warning(s) (mapping checksum {result['mapping_checksum']}): {summary}"[:1900],
+            )
+            sender = db.query(User).filter_by(id=user_id).first()
+            notify_admins(
+                db, "admin_send_warnings",
+                f"{(sender.full_name or sender.email) if sender else 'A member'} {action.lower()} with warnings",
+                f"'{report_type}' went out with {result['warn_count']} recipient warning(s) still open: {result['issues'][0]['message'][:140]}",
+                "/audit-log", exclude_user_id=user_id,
             )
     except Exception as e:  # noqa: BLE001
         db.rollback()
